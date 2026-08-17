@@ -18,7 +18,6 @@ interface Props {
   toggleTray: () => void
   onUndo: () => void
   onClearDrawing: () => void
-  disabled: boolean
   /* lật trang — chỉ hiện trên màn nhỏ, thay cho hai nút hai bên cuốn sổ */
   onPrev: () => void
   onNext: () => void
@@ -42,7 +41,6 @@ export default function Toolbar({
   toggleTray,
   onUndo,
   onClearDrawing,
-  disabled,
   onPrev,
   onNext,
   canPrev,
@@ -140,7 +138,6 @@ export default function Toolbar({
           <button
             key={r}
             className={`chip${ruling === r ? ' active' : ''}`}
-            disabled={disabled}
             onClick={() => setRuling(r)}
           >
             {label}

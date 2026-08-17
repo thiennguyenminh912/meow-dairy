@@ -20,7 +20,8 @@ import {
   supabase,
   type User,
 } from './lib/supabase'
-import { emptyDiary, loadDiary, makePage, saveDiary, uid } from './lib/storage'
+import { DEFAULT_SETTINGS, emptyDiary, loadDiary, makePage, saveDiary, uid } from './lib/storage'
+import { isBlankDiary, mergeDiaries } from './lib/merge'
 import type { Diary, DiaryPage, Ruling } from './lib/types'
 
 const PAGE_W = 430
@@ -47,7 +48,6 @@ export default function App() {
   const [indexOpen, setIndexOpen] = useState(false)
   const [focusedPageId, setFocusedPageId] = useState<string | null>(null)
   const [selectedSticker, setSelectedSticker] = useState<string | null>(null)
-  const [soundOn, setSoundOn] = useState(true)
   const [scale, setScale] = useState(1)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -94,6 +94,17 @@ export default function App() {
 
   const drawRefs = useRef<Record<string, DrawCanvasHandle | null>>({})
   const buddy = getCat(diary.buddyId)
+
+  // tuỳ chọn nằm trong cuốn sổ nên đi theo tài khoản, không dính vào máy nào cả
+  const settings = { ...DEFAULT_SETTINGS, ...diary.settings }
+  const soundOn = settings.soundOn
+  const setSettings = useCallback((patch: Partial<typeof DEFAULT_SETTINGS>) => {
+    setDiary((d) => ({ ...d, settings: { ...DEFAULT_SETTINGS, ...d.settings, ...patch } }))
+  }, [])
+  const setSoundOn = useCallback(
+    (on: boolean) => setSettings({ soundOn: on }),
+    [setSettings],
+  )
 
   const ping = useCallback((kind: string) => {
     eventSeq.current += 1
@@ -146,13 +157,28 @@ export default function App() {
     fetchRemoteDiary(user.id)
       .then((remote) => {
         if (!alive) return
-        if (remote && remote.updatedAt > localStamp.current) {
-          // bản trên mây mới hơn → dùng nó, đừng đẩy ngược lên
-          skipSync.current = true
-          localStamp.current = remote.updatedAt
-          setDiary(remote.data)
-          setToast('Đã tải nhật ký từ thiết bị khác về ☁️')
+        if (!remote) {
+          // chưa có gì trên mây → lần lưu kế tiếp sẽ tự đẩy bản của máy này lên
+          setSyncState('saved')
+          return
         }
+        setDiary((localDiary) => {
+          const cloud: Diary = { ...remote.data, updatedAt: remote.updatedAt }
+          const merged = mergeDiaries({ ...localDiary, updatedAt: localStamp.current }, cloud)
+
+          // sổ của máy này còn trắng → coi như chỉ nhận bản trên mây, không đẩy ngược
+          if (isBlankDiary(localDiary)) {
+            skipSync.current = true
+            localStamp.current = remote.updatedAt
+            setToast('Đã tải nhật ký của bạn từ đám mây về ☁️')
+          } else if (merged.pages.length > localDiary.pages.length) {
+            setToast(
+              `Đã gộp nhật ký hai nơi: ${merged.pages.length} trang (giữ nguyên tất cả) ☁️`,
+            )
+          }
+          if (merged.buddyId && !localDiary.buddyId) setShowPicker(false)
+          return merged
+        })
         setSyncState('saved')
       })
       .catch(() => {
@@ -257,7 +283,7 @@ export default function App() {
   const patchPage = useCallback((id: string, patch: Partial<DiaryPage>) => {
     setDiary((d) => ({
       ...d,
-      pages: d.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+      pages: d.pages.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p)),
     }))
   }, [])
 
@@ -467,7 +493,7 @@ export default function App() {
 
   /* ---------- trang ---------- */
   const addPage = () => {
-    const page = makePage()
+    const page = makePage({ ruling: settings.defaultRuling })
     setDiary((d) => ({ ...d, pages: [...d.pages, page] }))
     goToFace(pages.length + 2)
     ping('newpage')
@@ -511,7 +537,10 @@ export default function App() {
     }, TEAR_MS)
   }
 
-  const setRuling = (ruling: Ruling) => targetPage && patchPage(targetPage.id, { ruling })
+  const setRuling = (ruling: Ruling) => {
+    setSettings({ defaultRuling: ruling })
+    if (targetPage) patchPage(targetPage.id, { ruling })
+  }
 
   const onWrite = (id: string, text: string) => {
     patchPage(id, { text })
@@ -707,6 +736,15 @@ export default function App() {
   if (showPicker) {
     return (
       <CatPicker
+        auth={
+          <AuthButton
+            configured={!!supabase}
+            user={user}
+            syncState={syncState}
+            onSignIn={handleSignIn}
+            onSignOut={handleSignOut}
+          />
+        }
         initialOwner={diary.ownerName}
         initialBuddy={diary.buddyId}
         initialBuddyName={diary.buddyName}
@@ -751,8 +789,8 @@ export default function App() {
             ➕ Trang mới
           </button>
           <div className="spacer" />
-          <button className="pill" onClick={() => setSoundOn((v) => !v)}>
-            {soundOn ? '🔊' : '🔇'} Tiếng giấy
+          <button className="pill" onClick={() => setSoundOn(!soundOn)}>
+            {soundOn ? '🔊' : '🔇'} Tiếng mèo
           </button>
           <button className="pill" onClick={() => setShowPicker(true)}>
             🐱 Đổi bạn mèo
@@ -802,7 +840,12 @@ export default function App() {
           ›
         </button>
 
-        {buddy && <CatBuddy src={buddy.src} name={diary.buddyName} event={buddyEvent} />}
+        {buddy && <CatBuddy
+            src={buddy.src}
+            name={diary.buddyName}
+            soundOn={soundOn}
+            event={buddyEvent}
+          />}
 
         {indexOpen && (
           <div className="index-panel">
@@ -926,7 +969,6 @@ export default function App() {
           toggleTray={() => setTrayOpen((v) => !v)}
           onUndo={() => targetPageId && drawRefs.current[targetPageId]?.undo()}
           onClearDrawing={() => targetPageId && drawRefs.current[targetPageId]?.clear()}
-          disabled={!targetPage}
           onPrev={() => flipBy(-1)}
           onNext={() => flipBy(1)}
           canPrev={pos > 0}

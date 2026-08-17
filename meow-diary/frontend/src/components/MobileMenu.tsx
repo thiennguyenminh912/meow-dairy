@@ -91,7 +91,7 @@ export default function MobileMenu({
         </div>
 
         <button className="menu-row" onClick={() => setSoundOn(!soundOn)}>
-          <span>{soundOn ? '🔊' : '🔇'}</span> Tiếng lật giấy
+          <span>{soundOn ? '🔊' : '🔇'}</span> Tiếng mèo
           <small>{soundOn ? 'đang bật' : 'đang tắt'}</small>
         </button>
 

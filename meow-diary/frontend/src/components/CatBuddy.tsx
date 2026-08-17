@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { eventLine, idleLine, pick, type CatLine, type Mood } from '../lib/catLines'
+import { playPet, playSong } from '../lib/sound'
 
 /** mèo tự nhảy sang chỗ khác mỗi 10 phút, tự nói chuyện mỗi ~1 phút */
 const HOP_EVERY_MS = 10 * 60 * 1000
@@ -36,6 +37,8 @@ function loadPrefs(): Prefs {
 interface Props {
   src: string
   name: string
+  /** tắt tiếng thì mèo cũng im */
+  soundOn: boolean
   /** sự kiện mới nhất từ cuốn sổ: 'flip:12', 'sticker:3'… (đổi số để kích hoạt lại) */
   event: string | null
 }
@@ -46,7 +49,7 @@ interface Puff {
   dx: number
 }
 
-export default function CatBuddy({ src, name, event }: Props) {
+export default function CatBuddy({ src, name, soundOn, event }: Props) {
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
   const [spot, setSpot] = useState(0)
   const [line, setLine] = useState<CatLine>({ text: 'meo~ chào cậu! 🐾', mood: 'happy' })
@@ -96,11 +99,17 @@ export default function CatBuddy({ src, name, event }: Props) {
     }
   }
 
-  /* mèo tự nói chuyện khi rảnh */
+  /* mèo tự nói chuyện khi rảnh, thỉnh thoảng ngân nga vài nốt */
   useEffect(() => {
-    const talk = window.setInterval(() => say(idleLine()), TALK_EVERY_MS)
+    const talk = window.setInterval(() => {
+      say(idleLine())
+      if (Math.random() < 0.18) {
+        playSong(soundOn)
+        setLine({ text: 'la la lá~ 🎶', mood: 'dance' })
+      }
+    }, TALK_EVERY_MS)
     return () => window.clearInterval(talk)
-  }, [say])
+  }, [say, soundOn])
 
   /* 10 phút mới đổi chỗ một lần — và chỉ khi người dùng chưa tự đặt chỗ cho mèo */
   useEffect(() => {
@@ -156,6 +165,7 @@ export default function CatBuddy({ src, name, event }: Props) {
   }, [])
 
   const pet = () => {
+    playPet(soundOn)
     say(eventLine('pet'))
     spawnPuffs(pick([['🩷', '🩷'], ['✨', '🩷', '✨'], ['🎵', '🎶'], ['😽']]))
     hop()

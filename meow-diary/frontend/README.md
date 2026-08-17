@@ -76,7 +76,9 @@ public/
 | **Xé trang** | Nút ✂️ ngay **góc trang cần xé** — bấm lần đầu trang rạn nứt + rung, hộp xác nhận nổi giữa trang, bấm lần nữa thì trang xé rời bay ra |
 | **Bạn mèo** | 15 bé để chọn · 7 trạng thái cảm xúc có animation riêng (vui, quẩy, khóc, ngủ, thương, ngáo, thường) · ~40 câu thoại chill/động viên + câu riêng cho ban đêm · phản ứng theo hành động (lật trang, viết, vẽ, dán sticker, xé trang) · bấm để xoa đầu · **kéo thả tới chỗ bất kỳ**, thu nhỏ/phóng to, tự mờ đi khi bạn đang gõ · vị trí và cỡ được nhớ |
 | **PWA** | Cài về màn hình chính, chạy offline hoàn toàn (98 file precache ~4MB, gồm cả sticker) |
-| **Đồng bộ** | Đăng nhập Google → nhật ký lưu lên Supabase, mở máy khác thấy y nguyên |
+| **Âm thanh** | Tất cả tổng hợp bằng WebAudio, không dùng file: lật trang kêu "meo" khẽ (có giới hạn 1.2s/lần), xoa đầu mèo kêu "chíu", thỉnh thoảng mèo ngân nga vài nốt ngũ cung. Tắt/bật bằng một nút |
+| **Đồng bộ** | Đăng nhập Google → nhật ký lưu lên Supabase, mở máy khác thấy y nguyên. Nút đăng nhập có sẵn **ngay màn chọn mèo** để người quay lại lấy nhật ký cũ trước khi tạo sổ mới |
+| **Tuỳ chọn theo người** | Bật/tắt tiếng, kiểu giấy mặc định, bạn mèo, tên chủ — nằm trong cuốn sổ nên đi theo tài khoản, không dính vào một máy |
 
 ---
 
@@ -126,6 +128,43 @@ thước cửa sổ có phép quy đổi hai chiều: `pos*2` và `Math.ceil(pos
 | Kéo lật trang (30 bước) | 15.9 | 16.8 | 29.2 | 0 |
 | Vẽ (40 nét) | 15.7 | 16.8 | 41.7 | 0 |
 | Gõ 120 ký tự tiếng Việt | 15.4 | 16.8 | 20.8 | 0 |
+
+### Đồng bộ: tuyệt đối không được nuốt mất trang
+
+Phiên bản đầu chọn theo kiểu "bên nào mới hơn thì thắng cả cuốn" — và nó **ăn mất bài viết thật**:
+máy mới mở web có `localStorage` trống, app dựng sổ trắng rồi lưu ngay, thế là mốc thời gian của
+sổ trắng mới tinh **lớn hơn** bản trên mây viết từ hôm trước. Đăng nhập vào là bản trắng thắng,
+rồi lần lưu kế tiếp đẩy luôn bản trắng đè lên đám mây.
+
+Nay `lib/merge.ts` hợp nhất theo nguyên tắc *thà thừa một trang trắng còn hơn mất một trang có chữ*:
+
+- Bên nào **chưa viết gì** thì nhường hẳn bên kia (khỏi đẻ ra trang trắng thừa).
+- Trang **trùng id** → giữ bản có `updatedAt` mới hơn; không có mốc thì giữ bản nhiều nội dung hơn
+  (chữ + nét vẽ + sticker).
+- Trang **chỉ có ở một bên** → luôn giữ.
+- Thứ tự theo bản mới hơn, trang lạ của bên kia nối vào cuối.
+
+Bốn tình huống đã kiểm thử (chạy thật trong trình duyệt qua `window.__meowMerge` ở chế độ dev):
+
+| Tình huống | Kết quả |
+|---|---|
+| Web còn trắng gặp bản trên mây có bài | giữ nguyên bài, bỏ trang trắng thừa |
+| Máy có bài gặp bản trên mây trắng | giữ nguyên bài |
+| Hai bên đều có bài khác nhau | đủ cả 3 trang, không mất bên nào |
+| Cùng một trang sửa ở hai nơi | bản sửa sau thắng, cả hai chiều gộp |
+
+### Âm thanh
+
+Không có file audio nào, tất cả dựng bằng WebAudio (`lib/sound.ts`):
+
+- **"Meo"** — dao động triangle với cao độ đi lên rồi rơi, qua hai bandpass quét từ formant "e"
+  sang "o" nên nghe ra tiếng mèo chứ không phải tiếng còi.
+- **"Chíu"** — sine ngắn 0.22s khi xoa đầu mèo.
+- **"La la lá"** — 4–5 nốt ngũ cung (Đô-Rê-Mi-Sol-La, ghép kiểu gì cũng thuận tai) kèm vibrato nhẹ.
+
+Chống chói: chỉ sine/triangle, mọi thứ đi qua lowpass 2.2kHz, bao hình vào/ra mềm để không có
+tiếng "tạch". Đo bằng `OfflineAudioContext` — đỉnh biên độ 0.11–0.14 (không hề clip), năng lượng
+trên 4kHz chỉ 2.6–4.3%.
 
 ### Lưu trữ
 

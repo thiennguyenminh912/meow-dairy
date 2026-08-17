@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { CATS } from '../lib/cats'
 
 interface Props {
+  /** nút đăng nhập — để người quay lại máy khác lấy được nhật ký cũ ngay từ đây */
+  auth?: ReactNode
   initialOwner?: string
   initialBuddy?: string | null
   initialBuddyName?: string
@@ -10,6 +12,7 @@ interface Props {
 }
 
 export default function CatPicker({
+  auth,
   initialOwner = '',
   initialBuddy = null,
   initialBuddyName = '',
@@ -24,6 +27,13 @@ export default function CatPicker({
 
   return (
     <div className="picker">
+      {auth && (
+        <div className="picker-auth">
+          <span>Đã có nhật ký từ máy khác?</span>
+          {auth}
+        </div>
+      )}
+
       <h1>Chọn một bạn mèo đồng hành 🐾</h1>
       <p className="lead">
         Bạn ấy sẽ ngồi cạnh cuốn nhật ký, hóng bạn viết mỗi ngày.

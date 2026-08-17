@@ -1,4 +1,6 @@
-import type { Diary, DiaryPage } from './types'
+import type { Diary, DiaryPage, DiarySettings } from './types'
+
+export const DEFAULT_SETTINGS: DiarySettings = { soundOn: true, defaultRuling: 'line' }
 
 const KEY = 'meow-diary-v1'
 
@@ -16,6 +18,7 @@ export function makePage(partial: Partial<DiaryPage> = {}): DiaryPage {
     drawing: null,
     stickers: [],
     ruling: 'line',
+    updatedAt: Date.now(),
     ...partial,
   }
 }
@@ -25,7 +28,8 @@ export function emptyDiary(): Diary {
     ownerName: '',
     buddyId: null,
     buddyName: '',
-    pages: [makePage({ title: 'Trang đầu tiên' }), makePage({ title: '' })],
+    settings: { ...DEFAULT_SETTINGS },
+    pages: [makePage(), makePage()],
   }
 }
 
@@ -35,7 +39,8 @@ export function loadDiary(): Diary | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as Diary
     if (!parsed || !Array.isArray(parsed.pages)) return null
-    return parsed
+    // sổ lưu từ bản cũ chưa có settings
+    return { ...parsed, settings: { ...DEFAULT_SETTINGS, ...parsed.settings } }
   } catch {
     return null
   }

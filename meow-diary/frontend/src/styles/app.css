@@ -1984,3 +1984,22 @@ input[type='range'] {
 .leaf.single.parked {
   visibility: hidden;
 }
+
+/* thanh đăng nhập trên màn chọn mèo */
+.picker-auth {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-end;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brown-soft);
+}
+
+@media (max-width: 900px) {
+  .picker-auth {
+    align-self: center;
+    flex-direction: column;
+    gap: 6px;
+  }
+}

@@ -19,16 +19,26 @@ export interface DiaryPage {
   date: string
   title: string
   text: string
+  /** sửa lần cuối lúc nào (ms) — để gộp hai thiết bị mà không mất trang */
+  updatedAt?: number
   /** ảnh nét vẽ đã encode (dataURL) */
   drawing: string | null
   stickers: Sticker[]
   ruling: Ruling
 }
 
+/** tuỳ chọn đi theo người dùng, đồng bộ cùng nhật ký */
+export interface DiarySettings {
+  soundOn: boolean
+  /** kiểu giấy dùng cho trang mới */
+  defaultRuling: Ruling
+}
+
 export interface Diary {
   ownerName: string
   buddyId: string | null
   buddyName: string
+  settings?: DiarySettings
   pages: DiaryPage[]
   /** thời điểm sửa gần nhất (ms) — dùng để chọn bản mới hơn khi đồng bộ */
   updatedAt?: number
