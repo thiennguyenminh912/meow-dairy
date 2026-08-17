@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+.vite
+.vercel
+
+# biến môi trường — không bao giờ commit
+.env.local
+.env*.local
+
+# ảnh chụp dashboard / thông tin nhạy cảm — tuyệt đối không đẩy lên GitHub
+secret/
+**/secret/

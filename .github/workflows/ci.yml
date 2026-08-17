@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: Typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: meow-diary/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: meow-diary/frontend/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm exec tsc -b
+
+      - name: Build (kèm service worker PWA)
+        run: pnpm build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Kiểm tra artefact PWA có được sinh ra không
+        run: |
+          test -f dist/sw.js || { echo "❌ thiếu service worker"; exit 1; }
+          test -f dist/manifest.webmanifest || { echo "❌ thiếu manifest"; exit 1; }
+          echo "✅ PWA build ổn"

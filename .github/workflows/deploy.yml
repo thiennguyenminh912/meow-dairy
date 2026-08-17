@@ -1,0 +1,43 @@
+# Deploy lên Vercel BẰNG GitHub Actions.
+#
+# Chỉ dùng workflow này nếu bạn muốn Actions kiểm soát việc deploy.
+# Nếu đã bật Vercel Git integration (khuyến nghị — Vercel tự deploy mỗi lần push)
+# thì để nguyên `workflow_dispatch` để nó chỉ chạy khi bạn bấm tay,
+# tránh deploy hai lần cho cùng một commit.
+#
+# Muốn Actions deploy tự động: bỏ comment khối `push:` bên dưới
+# VÀ tắt auto-deploy trong Vercel (Settings → Git → Ignored Build Step: `exit 0`).
+#
+# Cần 3 secret trong repo (Settings → Secrets and variables → Actions):
+#   VERCEL_TOKEN       — vercel.com/account/tokens
+#   VERCEL_ORG_ID      — có trong .vercel/project.json sau khi chạy `vercel link`
+#   VERCEL_PROJECT_ID  — cùng file trên
+
+name: Deploy (Vercel)
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Kéo cấu hình project từ Vercel
+        run: npx vercel@latest pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        run: npx vercel@latest build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy
+        run: npx vercel@latest deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}

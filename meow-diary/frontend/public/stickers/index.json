@@ -1,0 +1,300 @@
+{
+  "license": "MIT License (Microsoft Fluent Emoji, 3D style) - https://github.com/microsoft/fluentui-emoji/blob/main/LICENSE",
+  "source": "https://github.com/microsoft/fluentui-emoji",
+  "groups": [
+    {
+      "id": "love",
+      "label": "Tình yêu",
+      "items": [
+        {
+          "file": "heart-red.png",
+          "name": "tim đỏ"
+        },
+        {
+          "file": "heart-sparkling.png",
+          "name": "tim lấp lánh"
+        },
+        {
+          "file": "heart-two.png",
+          "name": "hai trái tim"
+        },
+        {
+          "file": "heart-growing.png",
+          "name": "tim lớn dần"
+        },
+        {
+          "file": "heart-ribbon.png",
+          "name": "tim nơ"
+        },
+        {
+          "file": "heart-broken.png",
+          "name": "tim vỡ"
+        },
+        {
+          "file": "heart-blue.png",
+          "name": "tim xanh dương"
+        },
+        {
+          "file": "heart-yellow.png",
+          "name": "tim vàng"
+        },
+        {
+          "file": "heart-purple.png",
+          "name": "tim tím"
+        }
+      ]
+    },
+    {
+      "id": "weather-sky",
+      "label": "Bầu trời",
+      "items": [
+        {
+          "file": "sun.png",
+          "name": "mặt trời"
+        },
+        {
+          "file": "sun-cloud.png",
+          "name": "mặt trời sau mây"
+        },
+        {
+          "file": "cloud.png",
+          "name": "mây"
+        },
+        {
+          "file": "rainbow.png",
+          "name": "cầu vồng"
+        },
+        {
+          "file": "star.png",
+          "name": "ngôi sao"
+        },
+        {
+          "file": "star-glowing.png",
+          "name": "sao lấp lánh"
+        },
+        {
+          "file": "star-shooting.png",
+          "name": "sao băng"
+        },
+        {
+          "file": "sparkles.png",
+          "name": "lấp lánh"
+        },
+        {
+          "file": "moon-crescent.png",
+          "name": "trăng lưỡi liềm"
+        }
+      ]
+    },
+    {
+      "id": "food-drink",
+      "label": "Đồ ăn & Thức uống",
+      "items": [
+        {
+          "file": "cake-slice.png",
+          "name": "bánh kem"
+        },
+        {
+          "file": "cupcake.png",
+          "name": "bánh cupcake"
+        },
+        {
+          "file": "cookie.png",
+          "name": "bánh quy"
+        },
+        {
+          "file": "donut.png",
+          "name": "bánh donut"
+        },
+        {
+          "file": "coffee.png",
+          "name": "cà phê nóng"
+        },
+        {
+          "file": "bubble-tea.png",
+          "name": "trà sữa"
+        },
+        {
+          "file": "strawberry.png",
+          "name": "dâu tây"
+        },
+        {
+          "file": "ice-cream.png",
+          "name": "kem que"
+        },
+        {
+          "file": "candy.png",
+          "name": "kẹo"
+        },
+        {
+          "file": "chocolate.png",
+          "name": "sô-cô-la"
+        }
+      ]
+    },
+    {
+      "id": "nature-flowers",
+      "label": "Thiên nhiên & Hoa",
+      "items": [
+        {
+          "file": "cherry-blossom.png",
+          "name": "hoa anh đào"
+        },
+        {
+          "file": "tulip.png",
+          "name": "hoa tulip"
+        },
+        {
+          "file": "sunflower.png",
+          "name": "hoa hướng dương"
+        },
+        {
+          "file": "bouquet.png",
+          "name": "bó hoa"
+        },
+        {
+          "file": "clover.png",
+          "name": "cỏ bốn lá"
+        },
+        {
+          "file": "butterfly.png",
+          "name": "bươm bướm"
+        },
+        {
+          "file": "bee.png",
+          "name": "chú ong"
+        },
+        {
+          "file": "paw.png",
+          "name": "dấu chân mèo"
+        },
+        {
+          "file": "rose.png",
+          "name": "hoa hồng"
+        }
+      ]
+    },
+    {
+      "id": "celebration",
+      "label": "Ăn mừng",
+      "items": [
+        {
+          "file": "party-popper.png",
+          "name": "pháo giấy"
+        },
+        {
+          "file": "confetti.png",
+          "name": "bóng confetti"
+        },
+        {
+          "file": "balloon.png",
+          "name": "bóng bay"
+        },
+        {
+          "file": "gift.png",
+          "name": "hộp quà"
+        },
+        {
+          "file": "ribbon.png",
+          "name": "nơ ruy băng"
+        },
+        {
+          "file": "trophy.png",
+          "name": "cúp vàng"
+        },
+        {
+          "file": "music-notes.png",
+          "name": "nốt nhạc"
+        },
+        {
+          "file": "sparkler.png",
+          "name": "que pháo hoa"
+        }
+      ]
+    },
+    {
+      "id": "objects-study",
+      "label": "Đồ vật & Học tập",
+      "items": [
+        {
+          "file": "book-open.png",
+          "name": "sách mở"
+        },
+        {
+          "file": "books.png",
+          "name": "chồng sách"
+        },
+        {
+          "file": "memo.png",
+          "name": "ghi chú"
+        },
+        {
+          "file": "pencil.png",
+          "name": "bút chì"
+        },
+        {
+          "file": "bookmark.png",
+          "name": "đánh dấu trang"
+        },
+        {
+          "file": "notebook.png",
+          "name": "sổ tay"
+        },
+        {
+          "file": "clipboard.png",
+          "name": "bảng kẹp giấy"
+        },
+        {
+          "file": "alarm-clock.png",
+          "name": "đồng hồ báo thức"
+        },
+        {
+          "file": "light-bulb.png",
+          "name": "bóng đèn ý tưởng"
+        }
+      ]
+    },
+    {
+      "id": "faces-mood",
+      "label": "Cảm xúc",
+      "items": [
+        {
+          "file": "face-cat.png",
+          "name": "mặt mèo"
+        },
+        {
+          "file": "face-cat-happy.png",
+          "name": "mèo cười tít mắt"
+        },
+        {
+          "file": "face-cat-heart-eyes.png",
+          "name": "mèo mắt trái tim"
+        },
+        {
+          "file": "face-heart-eyes.png",
+          "name": "mặt cười mắt trái tim"
+        },
+        {
+          "file": "face-star-struck.png",
+          "name": "mặt cười mắt ngôi sao"
+        },
+        {
+          "file": "face-partying.png",
+          "name": "mặt tiệc tùng"
+        },
+        {
+          "file": "face-kiss.png",
+          "name": "mặt gửi nụ hôn"
+        },
+        {
+          "file": "face-winking.png",
+          "name": "mặt nháy mắt"
+        },
+        {
+          "file": "face-sleeping.png",
+          "name": "mặt đang ngủ"
+        }
+      ]
+    }
+  ]
+}
