@@ -37,6 +37,12 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // bản mới chiếm quyền ngay thay vì nằm chờ tab cũ đóng hết —
+        // nếu không, sau mỗi lần deploy người dùng vẫn chạy bản cũ cho tới
+        // lần mở app thứ hai (đúng cái bẫy đã làm bug lật trang "sống lại" lúc test)
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         // sticker + mèo + font đều cache để dùng offline
         globPatterns: ['**/*.{js,css,html,png,svg,json,woff2}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,

@@ -54,7 +54,14 @@ export default function App() {
   // lật trang bằng cách nắm góc giấy
   const [peek, setPeek] = useState<Peek | null>(null)
   const bookRef = useRef<HTMLDivElement>(null)
-  const cornerDragRef = useRef<{ dir: PeekDir; leaf: number } | null>(null)
+  // giữ rect của cuốn sổ ngay lúc bắt đầu kéo — khỏi phải đo lại mỗi lần di chuột
+  const cornerDragRef = useRef<{ dir: PeekDir; leaf: number; rect: DOMRect } | null>(null)
+  // hẹn giờ cho pha "thả tay, tờ giấy tự chạy nốt" — phải huỷ được khi có thao tác mới
+  const settleTimer = useRef<number | null>(null)
+  const rafRef = useRef<number | null>(null)
+  // vị trí trang đọc-ngay-lập-tức: bấm nút hai lần liền nhau phải ăn cả hai,
+  // state của React cập nhật sau một nhịp nên không dùng được cho việc này
+  const posRef = useRef(pos)
 
   // xoá trang: nứt trước, xé sau
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -210,13 +217,39 @@ export default function App() {
     }
   }, [])
 
+  /** ghi góc lật thẳng vào DOM — không đụng tới React state nên kéo không giật */
+  const paintAngle = (deg: number) => {
+    bookRef.current?.style.setProperty('--held-angle', `${deg}deg`)
+  }
+
+  /** dừng mọi thứ đang dang dở: hẹn giờ, khung hình chờ, tờ giấy đang bị nắm */
+  const cancelPeek = useCallback(() => {
+    if (settleTimer.current !== null) {
+      window.clearTimeout(settleTimer.current)
+      settleTimer.current = null
+    }
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    cornerDragRef.current = null
+    setPeek(null)
+  }, [])
+
+  useEffect(() => cancelPeek, [cancelPeek])
+
   // đổi giữa 1 trang ↔ 2 trang thì giữ nguyên chỗ đang đọc
   const prevSingle = useRef(single)
   useEffect(() => {
     if (prevSingle.current === single) return
-    setPos((p) => (single ? p * 2 : Math.ceil(p / 2)))
     prevSingle.current = single
-  }, [single])
+    // xoay máy giữa chừng thì bỏ tờ giấy đang nắm, tránh nó dính lại ở bố cục mới
+    cancelPeek()
+    const next = single ? posRef.current * 2 : Math.ceil(posRef.current / 2)
+    posRef.current = next
+    setPos(next)
+  }, [single, cancelPeek])
+
 
   /* ---------- các mặt giấy ---------- */
   const pages = diary.pages
@@ -271,107 +304,163 @@ export default function App() {
 
   // số trang đổi (thêm/xoá) thì giữ vị trí trong khoảng hợp lệ
   useEffect(() => {
-    setPos((p) => Math.min(p, units))
-  }, [units])
+    if (posRef.current <= units) return
+    cancelPeek()
+    posRef.current = units
+    setPos(units)
+  }, [units, cancelPeek])
 
   /* ---------- lật trang ---------- */
-  const flipTo = useCallback(
+
+
+  // pha cong góc (hover) và pha chạy nốt (settle) do React quyết định góc,
+  // vẫn ghi qua cùng một biến CSS để chỉ có một nguồn sự thật
+  useEffect(() => {
+    if (peek && peek.mode !== 'drag') {
+      bookRef.current?.style.setProperty('--held-angle', `${peek.angle}deg`)
+    }
+  }, [peek])
+
+  /** nguồn duy nhất được phép đổi trang — luôn đi qua đây để ref và state không lệch nhau */
+  const goTo = useCallback(
     (to: number) => {
       const next = clamp(to, 0, units)
-      setPos((cur) => {
-        if (cur === next) return cur
-        playPageFlip(soundOn)
-        setSelectedSticker(null)
-        ping('flip')
-        return next
-      })
+      // bấm nút / bấm phím luôn thắng: huỷ pha thả tay đang chạy để nó khỏi
+      // ghi đè vị trí trang một nhịp sau đó
+      cancelPeek()
+      if (next === posRef.current) return
+      posRef.current = next
+      setPos(next)
+      playPageFlip(soundOn)
+      setSelectedSticker(null)
+      ping('flip')
     },
-    [units, soundOn, ping],
+    [units, soundOn, ping, cancelPeek],
   )
+
+  const flipTo = goTo
+  /** lật tương đối — bấm liên tiếp bao nhiêu lần thì đi bấy nhiêu trang */
+  const flipBy = useCallback((delta: number) => goTo(posRef.current + delta), [goTo])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = document.activeElement
       const typing = el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement
       if (typing) return
-      if (e.key === 'ArrowRight') flipTo(pos + 1)
-      if (e.key === 'ArrowLeft') flipTo(pos - 1)
+      if (e.key === 'ArrowRight') flipBy(1)
+      if (e.key === 'ArrowLeft') flipBy(-1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [pos, flipTo])
+  }, [flipBy])
 
   /* ---------- nắm góc giấy kéo lật ---------- */
   const leafOf = (dir: PeekDir) => (dir === 'next' ? pos : pos - 1)
 
-  const angleFor = (dir: PeekDir, clientX: number) => {
-    const rect = bookRef.current?.getBoundingClientRect()
-    if (!rect) return dir === 'next' ? 0 : -180
-    if (dir === 'next') {
-      return -180 * clamp((rect.right - clientX) / rect.width, 0, 1)
-    }
-    return -180 * (1 - clamp((clientX - rect.left) / rect.width, 0, 1))
-  }
+  const angleFor = (dir: PeekDir, clientX: number, rect: DOMRect) =>
+    dir === 'next'
+      ? -180 * clamp((rect.right - clientX) / rect.width, 0, 1)
+      : -180 * (1 - clamp((clientX - rect.left) / rect.width, 0, 1))
 
   // rê chuột tới góc dưới của cuốn sổ thì góc giấy cong lên mời kéo
   useEffect(() => {
+    let queued = false
     const onMove = (e: PointerEvent) => {
-      if (cornerDragRef.current) return
-      const rect = bookRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const zoneW = Math.min(160, rect.width * 0.2)
-      const zoneH = Math.min(190, rect.height * 0.3)
-      const inBottom = e.clientY > rect.bottom - zoneH && e.clientY < rect.bottom + 12
-      const dir: PeekDir | null =
-        inBottom && e.clientX > rect.right - zoneW && e.clientX < rect.right + 12 && pos < units
-          ? 'next'
-          : inBottom && e.clientX < rect.left + zoneW && e.clientX > rect.left - 12 && pos > 0
-            ? 'prev'
-            : null
+      if (cornerDragRef.current || queued) return
+      queued = true
+      // gộp vào một khung hình: đo đạc layout tối đa 60 lần/giây
+      window.requestAnimationFrame(() => {
+        queued = false
+        if (cornerDragRef.current) return
+        const rect = bookRef.current?.getBoundingClientRect()
+        if (!rect) return
+        const zoneW = Math.min(160, rect.width * 0.2)
+        const zoneH = Math.min(190, rect.height * 0.3)
+        const inBottom = e.clientY > rect.bottom - zoneH && e.clientY < rect.bottom + 12
+        const dir: PeekDir | null =
+          inBottom && e.clientX > rect.right - zoneW && e.clientX < rect.right + 12 && pos < units
+            ? 'next'
+            : inBottom && e.clientX < rect.left + zoneW && e.clientX > rect.left - 12 && pos > 0
+              ? 'prev'
+              : null
 
-      setPeek((cur) => {
-        if (cur && cur.mode !== 'hover') return cur
-        if (!dir) return cur ? null : cur
-        const leaf = dir === 'next' ? pos : pos - 1
-        if (cur && cur.dir === dir && cur.leaf === leaf) return cur
-        return { leaf, dir, angle: dir === 'next' ? -5 : -175, mode: 'hover' }
+        setPeek((cur) => {
+          if (cur && cur.mode !== 'hover') return cur
+          if (!dir) return cur ? null : cur
+          const leaf = dir === 'next' ? pos : pos - 1
+          if (cur && cur.dir === dir && cur.leaf === leaf) return cur
+          return { leaf, dir, angle: dir === 'next' ? -5 : -175, mode: 'hover' }
+        })
       })
     }
     window.addEventListener('pointermove', onMove)
-    return () => window.removeEventListener('pointermove', onMove)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+    }
   }, [pos, units])
 
   const cornerDown = (dir: PeekDir, e: React.PointerEvent) => {
     const leaf = leafOf(dir)
     if (leaf < 0 || leaf >= units) return
+    const rect = bookRef.current?.getBoundingClientRect()
+    if (!rect) return
     e.preventDefault()
+    // bắt đầu lượt kéo mới thì huỷ hẳn lượt cũ còn sót
+    if (settleTimer.current !== null) {
+      window.clearTimeout(settleTimer.current)
+      settleTimer.current = null
+    }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    cornerDragRef.current = { dir, leaf }
-    setPeek({ leaf, dir, angle: angleFor(dir, e.clientX), mode: 'drag' })
+    cornerDragRef.current = { dir, leaf, rect }
+    paintAngle(angleFor(dir, e.clientX, rect))
+    setPeek({ leaf, dir, angle: 0, mode: 'drag' })
   }
 
   const cornerMove = (e: React.PointerEvent) => {
     const drag = cornerDragRef.current
     if (!drag) return
-    setPeek({ leaf: drag.leaf, dir: drag.dir, angle: angleFor(drag.dir, e.clientX), mode: 'drag' })
+    const x = e.clientX
+    if (rafRef.current !== null) return
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null
+      if (!cornerDragRef.current) return
+      paintAngle(angleFor(drag.dir, x, drag.rect))
+    })
   }
 
   const cornerUp = (e: React.PointerEvent) => {
     const drag = cornerDragRef.current
     if (!drag) return
     cornerDragRef.current = null
-    const progress = Math.abs(angleFor(drag.dir, e.clientX)) / 180
-    const complete = drag.dir === 'next' ? progress > 0.32 : progress < 0.68
-    const angle = drag.dir === 'next' ? (complete ? -180 : 0) : complete ? 0 : -180
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
 
-    setPeek({ leaf: drag.leaf, dir: drag.dir, angle, mode: 'settle' })
+    const angle = angleFor(drag.dir, e.clientX, drag.rect)
+    const progress = Math.abs(angle) / 180
+    const complete = drag.dir === 'next' ? progress > 0.32 : progress < 0.68
+    const target = drag.dir === 'next' ? (complete ? -180 : 0) : complete ? 0 : -180
+
+    // để CSS chạy nốt quãng còn lại
+    paintAngle(target)
+    setPeek({ leaf: drag.leaf, dir: drag.dir, angle: target, mode: 'settle' })
+
+    // CHỐT VỊ TRÍ NGAY LÚC THẢ TAY, không đợi animation xong.
+    // Tờ giấy đang bị nắm vẫn giữ đúng góc `target` nên hình ảnh không hề nhảy,
+    // mà thao tác tiếp theo (bấm nút, kéo tiếp) không còn cách nào ghi đè lên nó nữa
+    // — đây chính là chỗ trước kia gây "chuyển nhầm trang".
     if (complete) {
+      const want = clamp(drag.dir === 'next' ? drag.leaf + 1 : drag.leaf, 0, units)
+      posRef.current = want
+      setPos(want)
       playPageFlip(soundOn)
       setSelectedSticker(null)
       ping('flip')
     }
-    window.setTimeout(() => {
-      if (complete) setPos(drag.dir === 'next' ? drag.leaf + 1 : drag.leaf)
+
+    settleTimer.current = window.setTimeout(() => {
+      settleTimer.current = null
       setPeek(null)
     }, SETTLE_MS)
   }
@@ -625,6 +714,7 @@ export default function App() {
         onDone={({ ownerName, buddyId, buddyName }) => {
           setDiary((d) => ({ ...d, ownerName, buddyId, buddyName }))
           setShowPicker(false)
+          posRef.current = 0
           setPos(0)
         }}
       />
@@ -684,7 +774,7 @@ export default function App() {
       >
         <button
           className="nav-btn prev only-desktop"
-          onClick={() => flipTo(pos - 1)}
+          onClick={() => flipBy(-1)}
           disabled={pos === 0}
           title="Trang trước"
         >
@@ -705,7 +795,7 @@ export default function App() {
 
         <button
           className="nav-btn next only-desktop"
-          onClick={() => flipTo(pos + 1)}
+          onClick={() => flipBy(1)}
           disabled={pos === units}
           title="Trang sau"
         >
@@ -812,8 +902,8 @@ export default function App() {
           setEraser={setEraser}
           onUndo={() => targetPageId && drawRefs.current[targetPageId]?.undo()}
           onClearDrawing={() => targetPageId && drawRefs.current[targetPageId]?.clear()}
-          onPrev={() => flipTo(pos - 1)}
-          onNext={() => flipTo(pos + 1)}
+          onPrev={() => flipBy(-1)}
+          onNext={() => flipBy(1)}
           canPrev={pos > 0}
           canNext={pos < units}
           posLabel={`${pos}/${units}`}
@@ -837,8 +927,8 @@ export default function App() {
           onUndo={() => targetPageId && drawRefs.current[targetPageId]?.undo()}
           onClearDrawing={() => targetPageId && drawRefs.current[targetPageId]?.clear()}
           disabled={!targetPage}
-          onPrev={() => flipTo(pos - 1)}
-          onNext={() => flipTo(pos + 1)}
+          onPrev={() => flipBy(-1)}
+          onNext={() => flipBy(1)}
           canPrev={pos > 0}
           canNext={pos < units}
           posLabel={`${pos}/${units}`}

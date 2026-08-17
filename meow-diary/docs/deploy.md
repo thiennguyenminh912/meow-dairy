@@ -88,6 +88,10 @@ mở file, bỏ comment khối `push:`, thêm 3 secret `VERCEL_TOKEN` / `VERCEL_
 3. Đăng nhập Google → viết một trang → mở domain trên máy khác, đăng nhập cùng tài khoản →
    phải thấy trang vừa viết.
 4. DevTools → Application → *Service Workers*: `activated and running`; *Manifest*: không có lỗi đỏ.
+5. **Sau mỗi lần deploy**: service worker cũ có thể phục vụ bản cũ ở lần mở đầu tiên. Cấu hình
+   hiện tại (`skipWaiting` + `clientsClaim`) khiến bản mới chiếm quyền ngay, nhưng nếu thấy lỗi
+   đã sửa mà vẫn còn thì hãy Unregister service worker trong DevTools rồi tải lại — đừng vội
+   kết luận là code chưa sửa.
 
 ---
 

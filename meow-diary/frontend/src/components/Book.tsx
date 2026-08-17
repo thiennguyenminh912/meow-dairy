@@ -79,7 +79,9 @@ export default function Book({
       }`,
       style: {
         zIndex: held ? faces.length + 5 : flipped ? i + 1 : faces.length - i,
-        ...(held ? { transform: `rotateY(${peek!.angle}deg)` } : null),
+        // lúc đang kéo, góc lật đọc thẳng từ biến CSS (App ghi vào DOM mỗi khung hình)
+        // nên React không phải render lại — đó là chỗ trước đây bị giật
+        ...(held ? { transform: 'rotateY(var(--held-angle, 0deg))' } : null),
       } as React.CSSProperties,
     }
   }
