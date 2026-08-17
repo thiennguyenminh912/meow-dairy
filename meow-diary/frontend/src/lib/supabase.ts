@@ -4,6 +4,16 @@ import type { Diary } from './types'
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
+if (!url || !key) {
+  // Vite nhúng biến môi trường LÚC BUILD. Thiếu nó thì nhánh createClient bị loại
+  // khỏi bundle luôn, nút đăng nhập sẽ không hiện — thường là quên khai env trên
+  // Vercel, hoặc khai rồi nhưng chưa Redeploy.
+  console.warn(
+    '[Meow Diary] Thiếu VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY lúc build → ' +
+      'chạy ở chế độ chỉ lưu trên máy này, không có đăng nhập và đồng bộ.',
+  )
+}
+
 /** null khi chưa cấu hình env — app vẫn chạy bình thường ở chế độ chỉ lưu máy này */
 export const supabase: SupabaseClient | null =
   url && key
