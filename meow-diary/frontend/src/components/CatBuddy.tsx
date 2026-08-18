@@ -6,15 +6,26 @@ import { playPet, playSong } from '../lib/sound'
 const HOP_EVERY_MS = 10 * 60 * 1000
 const TALK_EVERY_MS = 60 * 1000
 
-/** 4 chỗ mèo hay ngồi quanh cuốn sổ — luôn ở rìa để không che trang giấy */
-const SPOTS = [
+/** 4 chỗ mèo hay ngồi quanh cuốn sổ trên máy tính — luôn ở rìa để không che trang giấy */
+const SPOTS_WIDE = [
   { left: 0.015, top: 0.74 },
   { left: 0.86, top: 0.74 },
   { left: 0.015, top: 0.03 },
   { left: 0.86, top: 0.03 },
 ]
 
-const PREF_KEY = 'meow-diary-buddy'
+/**
+ * Trên điện thoại chỉ có MỘT trang chiếm gần hết bề ngang, nên mèo ngồi ở góc
+ * dưới là cấn ngay vào mép trang lúc lật. Khoảng trống thật nằm ở trên đầu sổ,
+ * cho mèo lên đó ngồi.
+ */
+const SPOTS_NARROW = [
+  { left: 0.02, top: 0.0 },
+  { left: 0.74, top: 0.0 },
+]
+
+// v2: đổi khoá để mèo của người dùng cũ (đang bị ghim ở đáy màn hình) được xếp lại chỗ
+const PREF_KEY = 'meow-diary-buddy-v2'
 
 interface Prefs {
   mini: boolean
@@ -41,6 +52,8 @@ interface Props {
   soundOn: boolean
   /** sự kiện mới nhất từ cuốn sổ: 'flip:12', 'sticker:3'… (đổi số để kích hoạt lại) */
   event: string | null
+  /** màn hẹp (<900px): mèo ngồi phía trên cho khỏi cấn trang lúc lật */
+  compact: boolean
 }
 
 interface Puff {
@@ -49,7 +62,8 @@ interface Puff {
   dx: number
 }
 
-export default function CatBuddy({ src, name, soundOn, event }: Props) {
+export default function CatBuddy({ src, name, soundOn, event, compact }: Props) {
+  const SPOTS = compact ? SPOTS_NARROW : SPOTS_WIDE
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
   const [spot, setSpot] = useState(0)
   const [line, setLine] = useState<CatLine>({ text: 'meo~ chào cậu! 🐾', mood: 'happy' })
@@ -61,7 +75,15 @@ export default function CatBuddy({ src, name, soundOn, event }: Props) {
   const rootRef = useRef<HTMLDivElement>(null)
   const moodTimer = useRef<number | null>(null)
   const puffId = useRef(0)
-  const dragRef = useRef<{ dx: number; dy: number; moved: boolean } | null>(null)
+  const dragRef = useRef<{
+    dx: number
+    dy: number
+    x0: number
+    y0: number
+    w: number
+    h: number
+    moved: boolean
+  } | null>(null)
 
   const say = useCallback((next: CatLine) => {
     setLine(next)
@@ -180,6 +202,11 @@ export default function CatBuddy({ src, name, soundOn, event }: Props) {
     dragRef.current = {
       dx: e.clientX - self.left,
       dy: e.clientY - self.top,
+      x0: e.clientX,
+      y0: e.clientY,
+      // đo cỡ thật (kể cả bong bóng thoại) để mèo không bị kéo lọt ra ngoài khung
+      w: self.width,
+      h: self.height,
       moved: false,
     }
     setDragging(true)
@@ -189,13 +216,14 @@ export default function CatBuddy({ src, name, soundOn, event }: Props) {
     const drag = dragRef.current
     const box = rootRef.current?.parentElement?.getBoundingClientRect()
     if (!drag || !box) return
-    if (!drag.moved && Math.abs(e.movementX) + Math.abs(e.movementY) < 1) return
+    // KHÔNG dùng e.movementX: Safari trên iOS trả 0 cho pointer event của ngón tay
+    // nên mèo không tài nào kéo đi được. So với điểm bắt đầu thì máy nào cũng đúng.
+    if (!drag.moved && Math.abs(e.clientX - drag.x0) + Math.abs(e.clientY - drag.y0) < 4) return
     drag.moved = true
-    const size = prefs.mini ? 64 : 116
     savePrefs({
       ...prefs,
-      x: Math.min(Math.max(0, e.clientX - box.left - drag.dx), Math.max(0, box.width - size)),
-      y: Math.min(Math.max(0, e.clientY - box.top - drag.dy), Math.max(0, box.height - size)),
+      x: Math.min(Math.max(0, e.clientX - box.left - drag.dx), Math.max(0, box.width - drag.w)),
+      y: Math.min(Math.max(0, e.clientY - box.top - drag.dy), Math.max(0, box.height - drag.h)),
     })
   }
 
@@ -207,17 +235,19 @@ export default function CatBuddy({ src, name, soundOn, event }: Props) {
   }
 
   /* vị trí + hướng bong bóng */
+  // đổi giữa máy tính (4 chỗ) và điện thoại (2 chỗ) nên phải chia dư cho an toàn
+  const here = SPOTS[spot % SPOTS.length]
   const box = rootRef.current?.parentElement?.getBoundingClientRect()
   const pinned = prefs.x !== null && prefs.y !== null
   const style: React.CSSProperties = pinned
     ? { left: prefs.x ?? 0, top: prefs.y ?? 0 }
     : {
-        left: `${SPOTS[spot].left * 100}%`,
-        top: `${SPOTS[spot].top * 100}%`,
+        left: `${here.left * 100}%`,
+        top: `${here.top * 100}%`,
       }
 
-  const ratioX = pinned && box ? (prefs.x ?? 0) / Math.max(1, box.width) : SPOTS[spot].left
-  const ratioY = pinned && box ? (prefs.y ?? 0) / Math.max(1, box.height) : SPOTS[spot].top
+  const ratioX = pinned && box ? (prefs.x ?? 0) / Math.max(1, box.width) : here.left
+  const ratioY = pinned && box ? (prefs.y ?? 0) / Math.max(1, box.height) : here.top
   const bubbleLeft = ratioX > 0.5
   const bubbleBelow = ratioY < 0.25
 

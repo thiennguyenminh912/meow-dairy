@@ -7,9 +7,11 @@ import StickerTray from './components/StickerTray'
 import Toolbar, { PEN_COLORS } from './components/Toolbar'
 import MobileBar from './components/MobileBar'
 import MobileMenu from './components/MobileMenu'
+import Sheet from './components/Sheet'
 import type { DrawCanvasHandle } from './components/DrawCanvas'
 import { getCat } from './lib/cats'
 import type { StickerItem } from './lib/stickers'
+import { caretViewportY } from './lib/mobile'
 import { playPageFlip } from './lib/sound'
 import AuthButton, { type SyncState } from './components/AuthButton'
 import {
@@ -29,11 +31,31 @@ const PAGE_H = 600
 const SETTLE_MS = 700
 const TEAR_MS = 650
 
+/* --- vuốt ngang để lật trang (ngưỡng lấy theo Embla / use-gesture / Swiper) --- */
+const AXIS_LOCK = 10 // px: đi được ngần này mới quyết định đây là vuốt ngang hay dọc
+const Y_BIAS = 1.2 // thiên vị chiều dọc, tránh cướp mất cú cuộn của người dùng
+const FLING_V = 0.4 // px/ms: hất tay nhanh thì lật luôn dù kéo chưa xa
+const FLING_MIN_D = 40 // px: nhưng phải đi đủ xa, tránh chạm nhẹ cũng lật
+const LONG_RATIO = 0.25 // hoặc kéo quá 25% bề ngang trang
+const SAMPLE_MS = 100 // cửa sổ tính vận tốc
+
+/** bàn phím ảo coi như đang bật khi che mất hơn ngần này */
+const KB_MIN = 120
+
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
+
+/** app đã cài về màn hình chính? lúc đó không còn cử chỉ vuốt-mép của trình duyệt */
+const standalone =
+  window.matchMedia('(display-mode: standalone)').matches ||
+  (window.navigator as { standalone?: boolean }).standalone === true
 
 export default function App() {
   const [diary, setDiary] = useState<Diary>(() => loadDiary() ?? emptyDiary())
-  const [showPicker, setShowPicker] = useState(() => !loadDiary()?.buddyId)
+  // Chưa biết máy này có đang đăng nhập hay không thì TUYỆT ĐỐI chưa được kết
+  // luận "người này chưa chọn mèo" — đó chính là lỗi bắt chọn lại mèo dù đã có
+  // nhật ký trên đám mây. Chờ xong phiên đăng nhập + bản trên mây rồi mới quyết.
+  const [booting, setBooting] = useState(() => !!supabase)
+  const [showPicker, setShowPicker] = useState(() => !supabase && !loadDiary()?.buddyId)
   const [pos, setPos] = useState(1)
   const [single, setSingle] = useState(() => window.innerWidth < 900)
   // dưới 900px (điện thoại + máy tính bảng dọc) dùng bộ điều khiển gọn:
@@ -50,10 +72,13 @@ export default function App() {
   const [selectedSticker, setSelectedSticker] = useState<string | null>(null)
   const [scale, setScale] = useState(1)
   const [toast, setToast] = useState<string | null>(null)
+  /** chiều cao bàn phím ảo (px); 0 = đang không gõ */
+  const [kb, setKb] = useState(0)
 
-  // lật trang bằng cách nắm góc giấy
+  // lật trang bằng cách nắm góc giấy hoặc vuốt ngang ở bất kỳ đâu trên trang
   const [peek, setPeek] = useState<Peek | null>(null)
   const bookRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
   // giữ rect của cuốn sổ ngay lúc bắt đầu kéo — khỏi phải đo lại mỗi lần di chuột
   const cornerDragRef = useRef<{ dir: PeekDir; leaf: number; rect: DOMRect } | null>(null)
   // hẹn giờ cho pha "thả tay, tờ giấy tự chạy nốt" — phải huỷ được khi có thao tác mới
@@ -91,9 +116,19 @@ export default function App() {
   const [syncState, setSyncState] = useState<SyncState>(supabase ? 'idle' : 'off')
   const localStamp = useRef<number>(loadDiary()?.updatedAt ?? 0)
   const skipSync = useRef(false)
+  // Chưa đọc được bản trên mây thì KHÔNG được đẩy gì lên: không biết trên đó
+  // đang có gì, đẩy đại là có ngày sổ trắng đè mất bài viết cũ.
+  const cloudKnown = useRef(false)
+  // đổi số này để thử tải lại bản trên mây
+  const [retry, setRetry] = useState(0)
 
   const drawRefs = useRef<Record<string, DrawCanvasHandle | null>>({})
   const buddy = getCat(diary.buddyId)
+
+  // đọc được sổ hiện tại từ trong các callback bất đồng bộ mà không dính bản cũ
+  const diaryRef = useRef(diary)
+  diaryRef.current = diary
+  const bootedRef = useRef(!supabase)
 
   // tuỳ chọn nằm trong cuốn sổ nên đi theo tài khoản, không dính vào máy nào cả
   const settings = { ...DEFAULT_SETTINGS, ...diary.settings }
@@ -111,8 +146,21 @@ export default function App() {
     setBuddyEvent(`${kind}:${eventSeq.current}`)
   }, [])
 
+  /**
+   * Xong phần khởi động: giờ mới đủ dữ kiện để biết có phải bắt chọn mèo không.
+   * Gọi bao nhiêu lần cũng được — lần đầu tiên là lần có giá trị.
+   */
+  const finishBoot = useCallback((d: Diary) => {
+    if (bootedRef.current) return
+    bootedRef.current = true
+    setBooting(false)
+    setShowPicker(!d.buddyId)
+  }, [])
+
   /* ---------- lưu máy này + đẩy lên đám mây ---------- */
   useEffect(() => {
+    // chưa gộp xong bản trên mây mà đã lưu thì có ngày sổ trắng đè lên bài viết thật
+    if (booting) return
     const t = setTimeout(() => {
       const fromCloud = skipSync.current
       const stamp = fromCloud ? localStamp.current : Date.now()
@@ -128,6 +176,11 @@ export default function App() {
         return
       }
       if (!supabase || !user) return
+      if (!cloudKnown.current) {
+        // thử đọc lại bản trên mây; đọc được rồi thì lần lưu sau mới đẩy lên
+        setRetry((n) => n + 1)
+        return
+      }
       setSyncState('syncing')
       pushRemoteDiary(user.id, snapshot)
         .then(() => setSyncState('saved'))
@@ -137,59 +190,78 @@ export default function App() {
         })
     }, 600)
     return () => clearTimeout(t)
-  }, [diary, user])
+  }, [diary, user, booting])
 
   /* ---------- phiên đăng nhập ---------- */
   useEffect(() => {
     if (!supabase) return
-    supabase.auth.getSession().then(({ data }) => setUser(data.session?.user ?? null))
+    // cùng một người thì giữ nguyên object cũ, nếu không effect kéo sổ về
+    // sẽ chạy lại mỗi lần Supabase phát lại phiên (getSession + INITIAL_SESSION)
+    const remember = (next: User | null) =>
+      setUser((cur) => (cur?.id === next?.id ? cur : next))
+
+    supabase.auth.getSession().then(({ data }) => {
+      const session = data.session
+      remember(session?.user ?? null)
+      // chưa đăng nhập thì không có gì để chờ nữa
+      if (!session) finishBoot(diaryRef.current)
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) =>
-      setUser(session?.user ?? null),
+      remember(session?.user ?? null),
     )
     return () => sub.subscription.unsubscribe()
-  }, [])
+  }, [finishBoot])
 
   /* ---------- đăng nhập xong thì kéo bản trên mây về ---------- */
   useEffect(() => {
     if (!supabase || !user) return
     let alive = true
     setSyncState('syncing')
+
+    // mạng chập chờn thì cũng không được treo màn hình khởi động mãi
+    const bail = window.setTimeout(() => alive && finishBoot(diaryRef.current), 8000)
+
     fetchRemoteDiary(user.id)
       .then((remote) => {
         if (!alive) return
+        cloudKnown.current = true
         if (!remote) {
           // chưa có gì trên mây → lần lưu kế tiếp sẽ tự đẩy bản của máy này lên
           setSyncState('saved')
+          finishBoot(diaryRef.current)
           return
         }
-        setDiary((localDiary) => {
-          const cloud: Diary = { ...remote.data, updatedAt: remote.updatedAt }
-          const merged = mergeDiaries({ ...localDiary, updatedAt: localStamp.current }, cloud)
 
-          // sổ của máy này còn trắng → coi như chỉ nhận bản trên mây, không đẩy ngược
-          if (isBlankDiary(localDiary)) {
-            skipSync.current = true
-            localStamp.current = remote.updatedAt
-            setToast('Đã tải nhật ký của bạn từ đám mây về ☁️')
-          } else if (merged.pages.length > localDiary.pages.length) {
-            setToast(
-              `Đã gộp nhật ký hai nơi: ${merged.pages.length} trang (giữ nguyên tất cả) ☁️`,
-            )
-          }
-          if (merged.buddyId && !localDiary.buddyId) setShowPicker(false)
-          return merged
-        })
+        const localDiary = diaryRef.current
+        const cloud: Diary = { ...remote.data, updatedAt: remote.updatedAt }
+        const merged = mergeDiaries({ ...localDiary, updatedAt: localStamp.current }, cloud)
+
+        // sổ của máy này còn trắng → coi như chỉ nhận bản trên mây, không đẩy ngược
+        if (isBlankDiary(localDiary)) {
+          skipSync.current = true
+          localStamp.current = remote.updatedAt
+          setToast('Đã tải nhật ký của bạn từ đám mây về ☁️')
+        } else if (merged.pages.length > localDiary.pages.length) {
+          setToast(`Đã gộp nhật ký hai nơi: ${merged.pages.length} trang (giữ nguyên tất cả) ☁️`)
+        }
+
+        diaryRef.current = merged
+        setDiary(merged)
         setSyncState('saved')
+        finishBoot(merged)
       })
       .catch(() => {
         if (!alive) return
+        cloudKnown.current = false
         setSyncState('error')
-        setToast('Chưa đồng bộ được — kiểm tra lại bảng diaries trên Supabase nhé.')
+        setToast('Chưa đồng bộ được — nhật ký vẫn an toàn trên máy này.')
+        finishBoot(diaryRef.current)
       })
     return () => {
       alive = false
+      window.clearTimeout(bail)
     }
-  }, [user])
+  }, [user, retry, finishBoot])
 
   const handleSignIn = () => {
     signInWithGoogle().catch((e: Error) =>
@@ -212,36 +284,111 @@ export default function App() {
   }, [toast])
 
   /* ---------- co giãn cuốn sổ + chọn chế độ 1 trang / 2 trang ---------- */
+  // chiều cao màn hình lúc CHƯA có bàn phím — cỡ cuốn sổ luôn tính theo số này
+  const roomH = useRef(window.innerHeight)
   useEffect(() => {
     const fit = () => {
       const vw = window.innerWidth
-      // chiều cao thật của vùng nhìn thấy (bàn phím ảo không được che sổ)
-      const vh = window.visualViewport?.height ?? window.innerHeight
+      const vv = window.visualViewport
+      const visH = vv?.height ?? window.innerHeight
+      // viewport để mặc định (resizes-visual) nên window.innerHeight đứng yên
+      // khi bàn phím bật lên — hiệu số này chính là chiều cao bàn phím
+      const kbH = Math.max(0, window.innerHeight - visH - (vv?.offsetTop ?? 0))
+      const keyboard = kbH > KB_MIN ? Math.round(kbH) : 0
+      setKb(keyboard)
+      if (!keyboard) roomH.current = visH
+
       const oneUp = vw < 900
       setSingle(oneUp)
       setCompact(oneUp)
 
       const chromeH = oneUp ? 150 : 215
       const chromeW = oneUp ? 24 : 170
-      // một trang thì cho phép phóng to để lấp màn hình máy tính bảng
+      // TÍNH THEO roomH, KHÔNG theo visH: bật bàn phím lên cuốn sổ phải giữ
+      // nguyên cỡ, chỉ trượt lên cho khỏi bị che (xem --kb-lift bên dưới).
+      // Thu bé cuốn sổ lại là cách xử lý cũ và nó làm việc viết trở nên khó chịu.
       const s = Math.min(
         oneUp ? 1.6 : 1,
         (vw - chromeW) / (PAGE_W * (oneUp ? 1 : 2)),
-        (vh - chromeH) / PAGE_H,
+        (roomH.current - chromeH) / PAGE_H,
       )
       setScale(Math.max(0.32, s))
-      document.documentElement.style.setProperty('--app-h', `${vh}px`)
+      // khung app vẫn co lại để thanh dưới nằm ngay trên bàn phím
+      document.documentElement.style.setProperty('--app-h', `${visH}px`)
     }
     fit()
     window.addEventListener('resize', fit)
     window.addEventListener('orientationchange', fit)
     window.visualViewport?.addEventListener('resize', fit)
+    window.visualViewport?.addEventListener('scroll', fit)
     return () => {
       window.removeEventListener('resize', fit)
       window.removeEventListener('orientationchange', fit)
       window.visualViewport?.removeEventListener('resize', fit)
+      window.visualViewport?.removeEventListener('scroll', fit)
     }
   }, [])
+
+  /* ---------- giữ dòng đang gõ luôn nhìn thấy được ----------
+     Bàn phím che mất nửa dưới màn hình. Thay vì bóp nhỏ cuốn sổ, đo xem con trỏ
+     nhập đang ở đâu rồi trượt cả cuốn sổ lên vừa đủ — sổ giữ nguyên cỡ, dòng
+     đang viết luôn nằm trong vùng nhìn thấy. */
+  const liftRef = useRef(0)
+  const liftRaf = useRef<number | null>(null)
+  const kbRef = useRef(kb)
+  kbRef.current = kb
+  useEffect(() => {
+    const setLift = (px: number) => {
+      liftRef.current = px
+      stageRef.current?.style.setProperty('--kb-lift', `${px}px`)
+    }
+
+    const measure = () => {
+      liftRaf.current = null
+      const stage = stageRef.current
+      if (!stage) return
+      const el = document.activeElement
+      if (!kbRef.current || !(el instanceof HTMLTextAreaElement)) {
+        if (liftRef.current) setLift(0)
+        return
+      }
+      const y = caretViewportY(el)
+      if (y == null) return
+      const box = stage.getBoundingClientRect()
+      let next = liftRef.current
+      // chừa một dòng thở ở hai đầu cho khỏi sát mép
+      if (y > box.bottom - 28) next += y - (box.bottom - 28)
+      else if (y < box.top + 16) next -= box.top + 16 - y
+      next = clamp(Math.round(next), 0, PAGE_H)
+      if (next !== liftRef.current) setLift(next)
+    }
+
+    const schedule = () => {
+      if (liftRaf.current === null) liftRaf.current = window.requestAnimationFrame(measure)
+    }
+
+    document.addEventListener('selectionchange', schedule)
+    document.addEventListener('input', schedule)
+    document.addEventListener('focusin', schedule)
+    document.addEventListener('focusout', schedule)
+    window.visualViewport?.addEventListener('resize', schedule)
+    return () => {
+      document.removeEventListener('selectionchange', schedule)
+      document.removeEventListener('input', schedule)
+      document.removeEventListener('focusin', schedule)
+      document.removeEventListener('focusout', schedule)
+      window.visualViewport?.removeEventListener('resize', schedule)
+      if (liftRaf.current !== null) window.cancelAnimationFrame(liftRaf.current)
+    }
+  }, [])
+
+  // bàn phím vừa đóng thì hạ cuốn sổ về chỗ cũ
+  useEffect(() => {
+    if (!kb) {
+      liftRef.current = 0
+      stageRef.current?.style.setProperty('--kb-lift', '0px')
+    }
+  }, [kb])
 
   /** ghi góc lật thẳng vào DOM — không đụng tới React state nên kéo không giật */
   const paintAngle = (deg: number) => {
@@ -388,10 +535,18 @@ export default function App() {
       ? -180 * clamp((rect.right - clientX) / rect.width, 0, 1)
       : -180 * (1 - clamp((clientX - rect.left) / rect.width, 0, 1))
 
+  /** góc lật khi kéo theo QUÃNG ĐƯỜNG ngón tay đi được (vuốt ở giữa trang) */
+  const angleFromDelta = (dir: PeekDir, dx: number, span: number) =>
+    dir === 'next'
+      ? -180 * clamp(-dx / span, 0, 1)
+      : -180 * (1 - clamp(dx / span, 0, 1))
+
   // rê chuột tới góc dưới của cuốn sổ thì góc giấy cong lên mời kéo
   useEffect(() => {
     let queued = false
     const onMove = (e: PointerEvent) => {
+      // chỉ là gợi ý cho con chuột; ngón tay đã có cách vuốt ngang tiện hơn nhiều
+      if (e.pointerType !== 'mouse') return
       if (cornerDragRef.current || queued) return
       queued = true
       // gộp vào một khung hình: đo đạc layout tối đa 60 lần/giây
@@ -454,6 +609,36 @@ export default function App() {
     })
   }
 
+  /**
+   * Thả tay: cho tờ giấy chạy nốt quãng còn lại và CHỐT VỊ TRÍ NGAY, không đợi
+   * animation xong. Tờ giấy đang nắm vẫn giữ đúng góc đích nên hình ảnh không
+   * nhảy, mà thao tác kế tiếp không còn cách nào ghi đè lên nó nữa — đây chính
+   * là chỗ trước kia gây "chuyển nhầm trang".
+   * Dùng chung cho cả hai lối lật: nắm góc giấy và vuốt ngang.
+   */
+  const settleFlip = useCallback(
+    (dir: PeekDir, leaf: number, complete: boolean) => {
+      const target = dir === 'next' ? (complete ? -180 : 0) : complete ? 0 : -180
+      paintAngle(target)
+      setPeek({ leaf, dir, angle: target, mode: 'settle' })
+
+      if (complete) {
+        const want = clamp(dir === 'next' ? leaf + 1 : leaf, 0, units)
+        posRef.current = want
+        setPos(want)
+        playPageFlip(soundOn)
+        setSelectedSticker(null)
+        ping('flip')
+      }
+
+      settleTimer.current = window.setTimeout(() => {
+        settleTimer.current = null
+        setPeek(null)
+      }, SETTLE_MS)
+    },
+    [units, soundOn, ping],
+  )
+
   const cornerUp = (e: React.PointerEvent) => {
     const drag = cornerDragRef.current
     if (!drag) return
@@ -463,32 +648,134 @@ export default function App() {
       rafRef.current = null
     }
 
-    const angle = angleFor(drag.dir, e.clientX, drag.rect)
-    const progress = Math.abs(angle) / 180
-    const complete = drag.dir === 'next' ? progress > 0.32 : progress < 0.68
-    const target = drag.dir === 'next' ? (complete ? -180 : 0) : complete ? 0 : -180
+    const progress = Math.abs(angleFor(drag.dir, e.clientX, drag.rect)) / 180
+    settleFlip(drag.dir, drag.leaf, drag.dir === 'next' ? progress > 0.32 : progress < 0.68)
+  }
 
-    // để CSS chạy nốt quãng còn lại
-    paintAngle(target)
-    setPeek({ leaf: drag.leaf, dir: drag.dir, angle: target, mode: 'settle' })
+  /* ---------- vuốt ngang ở BẤT KỲ ĐÂU trên trang để lật ----------
+     Lật sổ thật thì cả mép giấy đều lật được, không ai chỉ nắm đúng một góc.
+     Trên điện thoại đây mới là thao tác chính; góc giấy chỉ còn là gợi ý cho chuột. */
+  const swipeRef = useRef<{
+    id: number
+    x0: number
+    y0: number
+    axis: 'x' | null
+    dir: PeekDir | null
+    leaf: number
+    span: number
+    samples: { x: number; t: number }[]
+  } | null>(null)
 
-    // CHỐT VỊ TRÍ NGAY LÚC THẢ TAY, không đợi animation xong.
-    // Tờ giấy đang bị nắm vẫn giữ đúng góc `target` nên hình ảnh không hề nhảy,
-    // mà thao tác tiếp theo (bấm nút, kéo tiếp) không còn cách nào ghi đè lên nó nữa
-    // — đây chính là chỗ trước kia gây "chuyển nhầm trang".
-    if (complete) {
-      const want = clamp(drag.dir === 'next' ? drag.leaf + 1 : drag.leaf, 0, units)
-      posRef.current = want
-      setPos(want)
-      playPageFlip(soundOn)
-      setSelectedSticker(null)
-      ping('flip')
+  const swipeDown = (e: React.PointerEvent) => {
+    // con chuột đã có góc giấy + nút hai bên; kéo ngang bằng chuột là để bôi đen chữ
+    if (e.pointerType === 'mouse' || swipeRef.current) return
+    const el = e.target as HTMLElement
+    if (
+      el.closest(
+        '.corner-hot, .mobile-bar, .sheet, .sheet-backdrop, .buddy, .sticker, .sticker-tools, .page-tear, .draw-layer, button, input, a',
+      )
+    ) {
+      return
+    }
+    // đang gõ dở thì cú vuốt trên ô chữ là để chọn chữ, không phải để lật
+    if (el instanceof HTMLTextAreaElement && document.activeElement === el) return
+    // trong tab trình duyệt, hai mép màn hình là chỗ vuốt-để-quay-lại của hệ điều hành
+    if (!standalone && (e.clientX < 24 || e.clientX > window.innerWidth - 24)) return
+
+    const rect = bookRef.current?.getBoundingClientRect()
+    if (!rect || !rect.width) return
+    swipeRef.current = {
+      id: e.pointerId,
+      x0: e.clientX,
+      y0: e.clientY,
+      axis: null,
+      dir: null,
+      leaf: -1,
+      span: single ? rect.width : rect.width / 2,
+      samples: [{ x: e.clientX, t: e.timeStamp }],
+    }
+  }
+
+  const swipeMove = (e: React.PointerEvent) => {
+    const s = swipeRef.current
+    if (!s || s.id !== e.pointerId) return
+    const dx = e.clientX - s.x0
+    const dy = e.clientY - s.y0
+
+    if (!s.axis) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < AXIS_LOCK) return
+      // nghiêng về chiều dọc thì nhường hẳn, đừng cướp cú cuộn của người dùng
+      if (Math.abs(dx) <= Math.abs(dy) * Y_BIAS) {
+        swipeRef.current = null
+        return
+      }
+      const dir: PeekDir = dx < 0 ? 'next' : 'prev'
+      const leaf = dir === 'next' ? posRef.current : posRef.current - 1
+      if (leaf < 0 || leaf >= units) {
+        swipeRef.current = null
+        return
+      }
+      s.axis = 'x'
+      s.dir = dir
+      s.leaf = leaf
+      // cú vuốt mới thắng mọi thứ đang dang dở
+      if (settleTimer.current !== null) {
+        window.clearTimeout(settleTimer.current)
+        settleTimer.current = null
+      }
+      const active = document.activeElement
+      if (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) active.blur()
+      try {
+        // Safari ném lỗi nếu ngón tay đã nhấc ra trước khi kịp giữ
+        ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+      } catch {
+        /* không giữ được thì thôi, sự kiện vẫn nổi bọt lên tới đây */
+      }
+      // đánh dấu để cancelPeek() và hiệu ứng cong góc biết là đang có người nắm giấy
+      cornerDragRef.current = { dir, leaf, rect: bookRef.current!.getBoundingClientRect() }
+      // ghi góc TRƯỚC khi render, nếu không tờ giấy loé một khung hình ở góc cũ
+      paintAngle(angleFromDelta(dir, dx, s.span))
+      setPeek({ leaf, dir, angle: 0, mode: 'drag' })
     }
 
-    settleTimer.current = window.setTimeout(() => {
-      settleTimer.current = null
-      setPeek(null)
-    }, SETTLE_MS)
+    s.samples.push({ x: e.clientX, t: e.timeStamp })
+    while (s.samples.length > 2 && e.timeStamp - s.samples[0].t > SAMPLE_MS) s.samples.shift()
+
+    if (rafRef.current !== null) return
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null
+      if (!swipeRef.current?.dir) return
+      paintAngle(angleFromDelta(swipeRef.current.dir, dx, s.span))
+    })
+  }
+
+  const swipeUp = (e: React.PointerEvent) => {
+    const s = swipeRef.current
+    swipeRef.current = null
+    if (!s || s.axis !== 'x' || !s.dir) return
+    cornerDragRef.current = null
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+
+    const dx = e.clientX - s.x0
+    const first = s.samples[0]
+    const vx = (e.clientX - first.x) / Math.max(1, e.timeStamp - first.t)
+    // đi đúng chiều mới tính; kéo ngược lại giữa chừng là đổi ý, trả trang về chỗ cũ
+    const forward = s.dir === 'next' ? dx < 0 : dx > 0
+    const fling = Math.abs(vx) > FLING_V && Math.abs(dx) > FLING_MIN_D
+    const long = Math.abs(dx) > s.span * LONG_RATIO
+    settleFlip(s.dir, s.leaf, forward && (fling || long))
+  }
+
+  /** trình duyệt giành lại cử chỉ (cuộn, phóng to) → nhả tờ giấy ra */
+  const swipeCancel = () => {
+    const s = swipeRef.current
+    swipeRef.current = null
+    if (!s || s.axis !== 'x' || !s.dir) return
+    cornerDragRef.current = null
+    settleFlip(s.dir, s.leaf, false)
   }
 
   /* ---------- trang ---------- */
@@ -732,6 +1019,16 @@ export default function App() {
     )
   })
 
+  /* ---------- còn đang hỏi đám mây xem người này là ai ---------- */
+  if (booting) {
+    return (
+      <div className="boot">
+        <div className="boot-book">📔</div>
+        <p>Đang mở cuốn nhật ký của bạn…</p>
+      </div>
+    )
+  }
+
   /* ---------- màn chọn bạn mèo ---------- */
   if (showPicker) {
     return (
@@ -759,8 +1056,10 @@ export default function App() {
     )
   }
 
+  const sheetOpen = trayOpen || indexOpen || menuOpen
+
   return (
-    <div className="app">
+    <div className={`app${kb ? ' kb-open' : ''}${sheetOpen ? ' sheet-open' : ''}`}>
       {compact ? (
         <div className="topbar compact">
           <div className="brand">
@@ -806,9 +1105,14 @@ export default function App() {
       )}
 
       <div
+        ref={stageRef}
         className={`stage${trayOpen ? ' tray-open' : ''}${
           trayOpen || indexOpen ? ' sheet-open' : ''
         }`}
+        onPointerDown={swipeDown}
+        onPointerMove={swipeMove}
+        onPointerUp={swipeUp}
+        onPointerCancel={swipeCancel}
       >
         <button
           className="nav-btn prev only-desktop"
@@ -840,16 +1144,22 @@ export default function App() {
           ›
         </button>
 
-        {buddy && <CatBuddy
+        {buddy && (
+          <CatBuddy
             src={buddy.src}
             name={diary.buddyName}
             soundOn={soundOn}
             event={buddyEvent}
-          />}
+            compact={compact}
+          />
+        )}
 
         {indexOpen && (
-          <div className="index-panel">
-            <h3>Mục lục ({pages.length} trang)</h3>
+          <Sheet
+            variant="index-sheet"
+            title={`Mục lục (${pages.length} trang)`}
+            onClose={() => setIndexOpen(false)}
+          >
             <p className="index-hint">Kéo ⠿ để đổi thứ tự · 🗑 để xé trang</p>
             {pages.map((p, i) => (
               <div
@@ -862,6 +1172,8 @@ export default function App() {
                 <span
                   className="index-grip"
                   title="Kéo để đổi thứ tự"
+                  // đây là cử chỉ kéo riêng, sheet không được hiểu nhầm thành "vuốt để đóng"
+                  data-no-sheet-drag
                   // pointer events để kéo được cả bằng chuột lẫn ngón tay
                   onPointerDown={(e) => {
                     e.preventDefault()
@@ -913,7 +1225,7 @@ export default function App() {
                 </button>
               </div>
             ))}
-          </div>
+          </Sheet>
         )}
 
         {trayOpen && (
@@ -952,6 +1264,8 @@ export default function App() {
           posLabel={`${pos}/${units}`}
           onOpenIndex={() => setIndexOpen((v) => !v)}
           onAddPage={addPage}
+          keyboardOpen={!!kb}
+          onDoneTyping={() => (document.activeElement as HTMLElement | null)?.blur?.()}
         />
       ) : (
         <Toolbar

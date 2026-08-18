@@ -26,6 +26,9 @@ interface Props {
   posLabel: string
   onOpenIndex: () => void
   onAddPage: () => void
+  /** bàn phím ảo đang bật — nhường hết chỗ cho trang giấy, chỉ chừa nút "Xong" */
+  keyboardOpen: boolean
+  onDoneTyping: () => void
 }
 
 /** Thanh công cụ dưới cùng cho điện thoại: mọi thứ vừa một hàng, không cuộn ngang */
@@ -47,6 +50,8 @@ export default function MobileBar({
   posLabel,
   onOpenIndex,
   onAddPage,
+  keyboardOpen,
+  onDoneTyping,
 }: Props) {
   const [modeOpen, setModeOpen] = useState(false)
   const [brushOpen, setBrushOpen] = useState(false)
@@ -66,6 +71,17 @@ export default function MobileBar({
   }, [modeOpen, brushOpen])
 
   const current = MODES.find((m) => m.id === mode) ?? MODES[0]
+
+  // đang gõ thì cả thanh công cụ nhường chỗ, chỉ còn một nút thoát bàn phím
+  if (keyboardOpen) {
+    return (
+      <div className="mobile-bar typing">
+        <button className="done-btn" onClick={onDoneTyping}>
+          ✓ Xong
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="mobile-bar" ref={barRef}>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import Sheet from './Sheet'
 import { loadStickerGroups, type StickerGroup, type StickerItem } from '../lib/stickers'
 
 interface Props {
@@ -22,15 +23,8 @@ export default function StickerTray({ onDragStart, onClose }: Props) {
   const current = groups.find((g) => g.id === tab) ?? groups[0]
 
   return (
-    <div className="sticker-tray">
-      <div className="tray-head">
-        <strong>Sticker</strong>
-        <button className="chip" onClick={onClose} title="Đóng">
-          ✕
-        </button>
-      </div>
-
-      <div className="tray-tabs">
+    <Sheet variant="tray-sheet" title="Sticker" onClose={onClose}>
+      <div className="tray-tabs" data-native-touch>
         {groups.map((g) => (
           <button
             key={g.id}
@@ -42,7 +36,7 @@ export default function StickerTray({ onDragStart, onClose }: Props) {
         ))}
       </div>
 
-      <div className="tray-grid">
+      <div className="tray-grid" data-no-sheet-drag>
         {current?.items.map((item) => (
           <button
             key={item.value}
@@ -59,6 +53,6 @@ export default function StickerTray({ onDragStart, onClose }: Props) {
       </div>
 
       <p className="tray-hint">Kéo thả vào trang · hoặc bấm để dán vào trang đang chọn</p>
-    </div>
+    </Sheet>
   )
 }

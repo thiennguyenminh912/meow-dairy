@@ -2,9 +2,17 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      KHÔNG khai interactive-widget: để mặc định `resizes-visual`.
+      `resizes-content` co luôn layout viewport khi bàn phím ảo bật lên — chính
+      là thứ làm cuốn sổ bị bóp lại còn tí xíu lúc đang gõ. Với mặc định thì
+      window.innerHeight đứng yên, chỉ visualViewport co, nên đo được chiều cao
+      bàn phím và tự quyết định nâng cuốn sổ lên bao nhiêu.
+      maximum-scale/user-scalable: Android tôn trọng, iOS bỏ qua (chặn bằng JS).
+    -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>Meow Diary — nhật ký của tớ</title>
 

@@ -53,8 +53,11 @@ src/
     MobileMenu.tsx        # sheet ⋯ gom thao tác ít dùng
     CatPicker.tsx         # màn chọn bạn mèo
     AuthButton.tsx        # đăng nhập / trạng thái đồng bộ
+    Sheet.tsx             # panel nổi (máy tính) / bottom sheet (điện thoại) dùng chung
   lib/
     types.ts  storage.ts  supabase.ts  cats.ts  stickers.ts  catLines.ts  sound.ts
+    mobile.ts             # chặn phóng to hai ngón / kéo nảy…, đo vị trí con trỏ nhập
+    overlay.ts            # nút Back của máy đóng panel đang mở thay vì thoát app
 public/
   cats/       # 15 sticker mèo PNG nền trong suốt (tách từ Resources/MauMeo.jpg)
   stickers/   # 63 sticker Fluent Emoji 3D + index.json (7 nhóm, tên tiếng Việt)
@@ -67,13 +70,14 @@ public/
 
 | Khu vực | Chi tiết |
 |---|---|
-| **Lật trang** | Rê chuột tới góc dưới → góc giấy cuộn lên; nắm góc kéo ngang để lật như sổ thật, thả giữa chừng thì trang bật lại. Ngoài ra: nút hai bên (máy tính), nút trong thanh dưới (điện thoại), phím ← →. Có tiếng giấy tạo bằng WebAudio (tắt được) |
+| **Lật trang** | **Ngón tay: vuốt ngang ở bất kỳ đâu trên trang** — đúng như lật sổ thật, không phải mò đúng một góc. **Chuột: rê tới góc dưới** → góc giấy cuộn lên, nắm kéo ngang; thả giữa chừng thì trang bật lại. Ngoài ra: nút hai bên (máy tính), nút trong thanh dưới (điện thoại), phím ← →. Có tiếng giấy tạo bằng WebAudio (tắt được) |
 | **Viết** | Textarea trong suốt căn đúng dòng kẻ, font viết tay Playpen Sans (đủ dấu tiếng Việt) |
 | **Vẽ** | Canvas riêng mỗi trang · 6 màu bút · chỉnh độ dày · tẩy · hoàn tác 15 bước · xoá cả trang |
 | **Sticker** | 15 mèo + 63 Fluent Emoji 3D chia 7 nhóm. Kéo thả từ khay vào trang (có ghost bay theo tay) hoặc bấm để dán nhanh; sau đó kéo di chuyển, phóng to/thu nhỏ, xoay, gỡ |
 | **Giấy** | Kẻ ngang / chấm bi / trơn, đổi riêng từng trang |
 | **Trang** | Thêm trang mới; mục lục nhảy tới trang bất kỳ và **kéo ⠿ đổi thứ tự** (chạy được cả bằng ngón tay) |
 | **Xé trang** | Nút ✂️ ngay **góc trang cần xé** — bấm lần đầu trang rạn nứt + rung, hộp xác nhận nổi giữa trang, bấm lần nữa thì trang xé rời bay ra |
+| **Trên điện thoại** | Vuốt lật trang · mọi panel là bottom sheet đóng được bằng 5 cách · viết chữ mà cuốn sổ giữ nguyên cỡ · chặn phóng to hai ngón / kéo nảy / giữ-lâu-ra-menu — xem "Giao diện trên điện thoại" bên dưới |
 | **Bạn mèo** | 15 bé để chọn · 7 trạng thái cảm xúc có animation riêng (vui, quẩy, khóc, ngủ, thương, ngáo, thường) · ~40 câu thoại chill/động viên + câu riêng cho ban đêm · phản ứng theo hành động (lật trang, viết, vẽ, dán sticker, xé trang) · bấm để xoa đầu · **kéo thả tới chỗ bất kỳ**, thu nhỏ/phóng to, tự mờ đi khi bạn đang gõ · vị trí và cỡ được nhớ |
 | **PWA** | Cài về màn hình chính, chạy offline hoàn toàn (98 file precache ~4MB, gồm cả sticker) |
 | **Âm thanh** | Tất cả tổng hợp bằng WebAudio, không dùng file: lật trang kêu "meo" khẽ (có giới hạn 1.2s/lần), xoa đầu mèo kêu "chíu", thỉnh thoảng mèo ngân nga vài nốt ngũ cung. Tắt/bật bằng một nút |
@@ -175,6 +179,20 @@ trên 4kHz chỉ 2.6–4.3%.
   4 policy đều là `auth.uid() = user_id`, nên không ai đọc được nhật ký của người khác.
 - **Chọn bản nào khi hai máy lệch nhau**: so `updatedAt`; bản mới hơn thắng. Khi kéo bản trên mây
   về, một cờ `skipSync` chặn việc đẩy ngược lên để không tạo vòng lặp.
+- **Chưa đọc được bản trên mây thì không đẩy gì lên** (`cloudKnown`). Trước đây fetch lỗi (mất
+  mạng, token hết hạn) thì app vẫn đẩy sổ hiện có lên — mà lúc đó nó có thể đang là sổ trắng.
+  Nay lần lưu kế tiếp sẽ thử đọc lại thay vì đẩy đại.
+
+### Khởi động: chưa biết mình là ai thì chưa được hỏi gì
+
+Bản cũ quyết định "có bắt chọn mèo không" ngay lúc mount, chỉ dựa vào `localStorage`. Người dùng
+đã đăng nhập nhưng mở trên máy khác / xoá cache / cài lại PWA thì `localStorage` trống → app bắt
+chọn mèo và đặt tên lại từ đầu, dù nhật ký vẫn còn nguyên trên đám mây.
+
+Nay có một pha `booting`: khi đã cấu hình Supabase, app hiện màn hình chờ cho tới khi biết xong
+phiên đăng nhập **và** (nếu có đăng nhập) đọc xong bản trên mây, rồi mới quyết định. Có hàng rào
+8 giây để mạng chập chờn cũng không treo mãi, và trong lúc `booting` thì tuyệt đối không lưu/đẩy
+gì — nếu không sổ trắng lúc khởi động sẽ đè lên bản thật.
 
 ### Sticker mèo
 
@@ -190,10 +208,71 @@ Không có hàng nút cuộn ngang giấu chức năng. Thay vào đó, theo l�
 - **Thanh dưới cố định**: `‹` · nút chế độ (bấm mới bung Viết/Vẽ/Sticker) · số trang (bấm mở mục
   lục) · `＋` · `›`. Công cụ vẽ chỉ hiện khi đang ở chế độ vẽ.
 - **Menu ⋯**: mục lục, thêm trang, kiểu giấy, tiếng giấy, đổi bạn mèo, đăng nhập.
-- Khay sticker và mục lục là **bottom sheet**; mọi nút ≥44px; ô nhập ≥16px để iOS không tự phóng to.
-- Tôn trọng `env(safe-area-inset-*)` và **bàn phím ảo**: chiều cao thật lấy từ `visualViewport`
-  và cuốn sổ được định vị tuyệt đối + scale, nên bàn phím bật lên không đẩy thanh công cụ ra
-  khỏi màn hình.
+- Mọi nút ≥44px; ô nhập ≥16px để iOS không tự phóng to; tôn trọng `env(safe-area-inset-*)`.
+
+Bốn thứ dưới đây là chỗ bản đầu làm sai, và cách sửa:
+
+#### 1. Chặn hành vi mặc định của trình duyệt (`lib/mobile.ts`)
+
+Web muốn giống app thì phải tắt mấy thứ chỉ hợp với trang tài liệu:
+
+- **Phóng to hai ngón** — `user-scalable=no` bị iOS Safari bỏ qua từ iOS 10, nên phải chặn bằng JS:
+  `touchstart`/`touchmove` có từ 2 ngón thì `preventDefault`, cộng thêm bộ sự kiện riêng của
+  WebKit (`gesturestart/change/end`).
+- **Chạm hai lần để phóng to** — `touch-action: manipulation`. *Không* dùng mẹo chặn `touchend`
+  trong 300ms: nó nuốt luôn cú bấm thứ hai, bấm nút lật trang liên tiếp sẽ mất một nhịp.
+- **Kéo nảy / kéo-xuống-để-tải-lại** — `body { position: fixed; inset: 0; overflow: hidden }`.
+  Một dòng này diệt luôn cả cú tự cuộn của iOS mỗi lần chạm vào ô nhập. Phần còn lại: chạm vào
+  chỗ không có gì để cuộn thì chặn `touchmove` (quyết định **một lần** lúc chạm xuống, không đo
+  lại mỗi khung hình).
+- **Giữ lâu ra menu "Lưu ảnh"** — `-webkit-touch-callout: none` + chặn `contextmenu`, nhưng chừa
+  lại ô nhập để còn dán chữ được.
+
+#### 2. Panel nào cũng đóng được bằng 5 cách (`components/Sheet.tsx`)
+
+Mục lục bản cũ chỉ đóng được bằng đúng cái nút đã mở nó — trên điện thoại thì gần như là bí.
+Nay mọi thứ bung ra (mục lục, khay sticker, menu ⋯) đều đi qua một component: **vuốt xuống ·
+chạm nền mờ · nút ✕ · phím Esc · nút Back của máy**. Ngưỡng vuốt lấy theo `vaul`: đóng khi hất
+tay nhanh hơn `0.4 px/ms` **hoặc** kéo quá 25% chiều cao, vận tốc tính trên cửa sổ mẫu 100ms
+(một khung hình quá nhiễu).
+
+Hai chi tiết dễ sai:
+
+- Sheet phải **render vào `document.body` qua portal**: sân khấu cuốn sổ có `perspective` nên nó
+  trở thành khung quy chiếu của mọi `position: fixed` bên trong — để trong đó thì sheet dính vào
+  đáy sân khấu chứ không phải đáy màn hình, còn nền mờ bị `overflow: hidden` cắt cụt.
+- Chỗ đã có cử chỉ kéo riêng (nhấc sticker, kéo ⠿ đổi thứ tự trang) phải gắn `data-no-sheet-drag`,
+  nếu không kéo sticker xuống là sheet tưởng mình bị đuổi.
+- Nút Back: giữ đúng **một** mốc lịch sử giả trong lúc còn panel mở, và việc thêm/gỡ mốc hoãn tới
+  cuối lượt render (`lib/overlay.ts`) — nếu không, lúc đóng menu ⋯ để mở mục lục, mốc cũ bị gỡ rồi
+  thêm lại và cú `history.back()` đang xếp hàng sẽ đóng luôn cái vừa mở.
+
+#### 3. Viết chữ: cuốn sổ không được thu nhỏ
+
+Bản cũ lấy `visualViewport.height` làm chiều cao để tính `scale`, nên bàn phím bật lên là cuốn sổ
+teo lại còn ~60% — chữ bé tí, viết rất khó chịu. Ba thay đổi:
+
+- **Bỏ `interactive-widget=resizes-content`** khỏi thẻ viewport. Nó co luôn layout viewport khi bàn
+  phím bật. Để mặc định (`resizes-visual`) thì `window.innerHeight` đứng yên, chỉ `visualViewport`
+  co — nhờ đó đo được chiều cao bàn phím: `innerHeight - visualViewport.height - offsetTop`.
+- **Cỡ sổ tính theo chiều cao lúc chưa có bàn phím** (`roomH`), nên nó không đổi một pixel nào.
+- **Trượt cuốn sổ lên theo con trỏ nhập** (`--kb-lift`): textarea không cho hỏi thẳng toạ độ caret,
+  nên dựng một div "gương" cùng font/padding/độ rộng, đổ vào phần chữ đứng trước con trỏ rồi đo
+  `offsetTop` của phần còn lại — nhớ nhân với tỉ lệ `scale` của cuốn sổ. Cùng lúc đó thanh trên ẩn
+  đi, thanh dưới rút còn mỗi nút "✓ Xong", mèo tạm lánh.
+
+#### 4. Lật trang và con mèo
+
+- **Vuốt ngang ở bất kỳ đâu trên trang**, không chỉ ở góc. `touch-action: pan-y` trên sân khấu để
+  trình duyệt tự lọc hộ cú cuộn dọc; JS chỉ khoá trục sau khi ngón tay đi được 10px và chiều ngang
+  hơn chiều dọc 1.2 lần. Lật khi `|vx| > 0.4 px/ms && |dx| > 40px` **hoặc** kéo quá 25% bề ngang
+  trang (ngưỡng tham khảo Embla / use-gesture / Swiper). `pointercancel` → nhả trang về chỗ cũ.
+  Vùng nắm góc `.corner-hot` bị ẩn trên `pointer: coarse` vì nó chỉ tổ cướp mất cú vuốt.
+  Đang gõ dở thì vuốt trên ô chữ là để chọn chữ, không lật.
+- **Mèo ngồi phía trên** ở màn hẹp (`SPOTS_NARROW`) — góc dưới là chỗ mép trang quét qua lúc lật.
+  Khung bao mèo `pointer-events: none`, chỉ mình con mèo nhận chạm.
+  Và một lỗi thật: chỗ kéo mèo dùng `e.movementX`, mà Safari trên iOS trả 0 cho pointer event của
+  ngón tay → mèo không tài nào kéo đi được. Nay so với điểm bắt đầu.
 
 ---
 

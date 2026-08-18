@@ -38,9 +38,22 @@ body,
 html {
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
+  /* Khoá cứng khung app. Một dòng này tắt luôn ba thứ khó chịu cùng lúc:
+     kéo-xuống-để-tải-lại, nảy giấy cao su ở hai đầu, và cú tự cuộn của iOS
+     mỗi lần chạm vào ô nhập — cả ba đều bắt nguồn từ việc trang cuộn được. */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* bỏ chạm-hai-lần-để-phóng-to và độ trễ 300ms, vẫn giữ cuộn bình thường */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  /* giữ lâu không hiện menu "Lưu ảnh / Sao chép" */
+  -webkit-touch-callout: none;
   /* kéo góc giấy / kéo sticker không được bôi đen chữ */
   user-select: none;
   -webkit-user-select: none;
@@ -50,19 +63,43 @@ body {
   background-image:
     repeating-linear-gradient(90deg, rgba(231, 156, 83, 0.09) 0 34px, transparent 34px 68px),
     repeating-linear-gradient(0deg, rgba(231, 156, 83, 0.09) 0 34px, transparent 34px 68px);
-  overflow: hidden;
+}
+
+img {
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 button {
   font-family: inherit;
   color: inherit;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
+/* ô nhập được quyền cư xử như ô nhập: bôi đen, giữ lâu để dán */
 textarea,
 input {
   user-select: text;
   -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* ---------- màn hình chờ lúc hỏi đám mây xem người này là ai ---------- */
+.boot {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--brown-soft);
+  font-weight: 600;
+}
+
+.boot-book {
+  font-size: 56px;
+  animation: buddy-bob 2s ease-in-out infinite;
 }
 
 /* ---------- app shell ---------- */
@@ -157,17 +194,22 @@ input {
   overflow: hidden;
   perspective: 2600px;
   perspective-origin: 50% 45%;
+  /* chiều dọc để trình duyệt lo (cuộn trong ô chữ), chiều ngang giao cho JS
+     để vuốt lật trang. Không khai thì trình duyệt nuốt mất cú vuốt ngang. */
+  touch-action: pan-y;
 }
 
-/* cuốn sổ đặt tuyệt đối + scale để không đẩy thanh công cụ ra khỏi màn hình
-   khi chiều cao co lại (bàn phím ảo bật lên) */
+/* Cuốn sổ đặt tuyệt đối + scale để không đẩy thanh công cụ ra khỏi màn hình.
+   --kb-lift: lúc bàn phím ảo bật lên, cuốn sổ GIỮ NGUYÊN CỠ và chỉ trượt lên
+   vừa đủ để dòng đang gõ không bị che (App.tsx đo vị trí con trỏ rồi ghi vào). */
 .book-scale {
   position: absolute;
   top: 50%;
   left: 50%;
   transform-origin: center center;
-  transform: translate(-50%, -50%) scale(var(--book-scale, 1));
-  transition: top 0.35s ease, left 0.35s ease, transform 0.35s ease;
+  transform: translate(-50%, -50%) translateY(calc(-1 * var(--kb-lift, 0px)))
+    scale(var(--book-scale, 1));
+  transition: top 0.35s ease, left 0.35s ease, transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .book {
@@ -270,7 +312,15 @@ input {
   box-shadow: 0 18px 40px -12px rgba(125, 83, 51, 0.45);
 }
 
-/* vùng nắm góc trang */
+/* Vùng nắm góc trang — chỉ còn dành cho con chuột.
+   Ngón tay đã vuốt lật được ở bất kỳ đâu trên trang (thao tác quen thuộc hơn
+   nhiều), giữ lại vùng góc chỉ tổ cướp mất cú vuốt bắt đầu từ chỗ đó. */
+@media (pointer: coarse) {
+  .corner-hot {
+    display: none;
+  }
+}
+
 .corner-hot {
   position: absolute;
   bottom: 0;
@@ -537,6 +587,8 @@ input {
   color: #6b4728;
   padding: 0 4px;
   user-select: text;
+  /* cuộn dọc được trong ô chữ, còn vuốt ngang thì nhường cho việc lật trang */
+  touch-action: pan-y;
 }
 
 .page-text::placeholder {
@@ -812,31 +864,119 @@ input[type='range'] {
   width: 90px;
 }
 
-/* ---------- khay sticker ---------- */
-.sticker-tray {
+/* ================= panel / bottom sheet dùng chung =================
+   Mọi thứ bung ra che nội dung đều đi qua đây, nên chỗ nào cũng đóng được bằng
+   ĐỦ NĂM cách người dùng điện thoại hay thử: vuốt xuống, chạm nền mờ, nút ✕,
+   phím Esc, nút Back của máy. Trước đây mục lục không có cách nào ngoài việc
+   bấm đúng cái nút đã mở nó. */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(125, 83, 51, 0.28);
+  animation: fade-in 0.18s ease-out;
+  /* trên máy tính các panel là cửa sổ nhỏ cạnh cuốn sổ, không cần nền mờ */
+  display: none;
+}
+
+.sheet {
   position: absolute;
-  right: 14px;
-  bottom: 84px;
-  width: 288px;
-  max-height: 60vh;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   background: var(--paper);
   border: 3px solid var(--tan);
   border-radius: 20px;
   box-shadow: 0 14px 30px -14px var(--shadow);
-  padding: 12px;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  padding: 10px 12px 12px;
+  transform: translateY(var(--sheet-y, 0px));
+  transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.tray-head {
+/* lúc ngón tay còn đang giữ thì bám sát tay, không được có độ trễ */
+.sheet.dragging {
+  transition: none;
+}
+
+/* tay nắm: nhìn thì mảnh, nhưng vùng chạm phải ≥44px cho ngón tay */
+.sheet-grab {
+  display: none;
+  padding: 10px 0 6px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sheet-grip {
+  display: block;
+  width: 44px;
+  height: 5px;
+  margin: 0 auto;
+  border-radius: 3px;
+  background: var(--tan);
+}
+
+.sheet-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   font-size: 15px;
+  touch-action: none;
 }
 
+.sheet-x {
+  min-width: 40px;
+  min-height: 40px;
+  flex: 0 0 auto;
+  border: 2px solid var(--tan);
+  border-radius: 999px;
+  background: var(--cream);
+  font-size: 14px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* cuộn tới đáy danh sách không được kéo lây cả trang phía sau */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+/* Vị trí trên máy tính: vẫn là mấy cửa sổ nhỏ nằm cạnh cuốn sổ như trước.
+   Bọc trong media query chứ không để trần — selector hai class này "nặng" hơn
+   `.sheet` nên nếu để trần thì bản bottom sheet ở dưới không đè lên được. */
+@media (min-width: 901px) {
+  .sheet.index-sheet {
+    left: 14px;
+    top: 60px;
+    width: 250px;
+    max-height: 68vh;
+  }
+
+  /* neo theo đáy màn hình (sheet nằm ở body) nên phải chừa cả thanh công cụ */
+  .sheet.tray-sheet {
+    right: 14px;
+    bottom: 96px;
+    width: 288px;
+    max-height: 60vh;
+  }
+
+  .sheet.menu-sheet {
+    right: 14px;
+    top: 60px;
+    width: 290px;
+    max-height: 72vh;
+  }
+}
+
+/* ---------- khay sticker ---------- */
 .tray-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -871,8 +1011,8 @@ input[type='range'] {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  /* .sheet-body mới là chỗ cuộn — lồng hai vùng cuộn vào nhau là ngón tay hết biết
+     mình đang cuộn cái nào */
   padding-right: 4px;
 }
 
@@ -885,6 +1025,8 @@ input[type='range'] {
   place-items: center;
   aspect-ratio: 1;
   font-size: 26px;
+  /* ô lưới mặc định không co nhỏ hơn nội dung — không khai thì cột cuối tràn ra ngoài */
+  min-width: 0;
 }
 
 .tray-grid button:hover {
@@ -1303,26 +1445,6 @@ input[type='range'] {
 }
 
 /* ---------- mục lục trang ---------- */
-.index-panel {
-  position: absolute;
-  left: 14px;
-  top: 60px;
-  width: 250px;
-  max-height: 68vh;
-  overflow-y: auto;
-  background: var(--paper);
-  border: 3px solid var(--tan);
-  border-radius: 20px;
-  box-shadow: 0 14px 30px -14px var(--shadow);
-  padding: 12px;
-  z-index: 30;
-}
-
-.index-panel h3 {
-  margin: 0 0 8px;
-  font-size: 15px;
-}
-
 .index-row {
   display: flex;
   align-items: stretch;
@@ -1512,18 +1634,28 @@ input[type='range'] {
     height: 34px;
   }
 
-  /* khay sticker + mục lục trượt lên từ đáy như bottom sheet */
-  .sticker-tray,
-  .index-panel {
+  /* mọi panel đều trượt lên từ đáy như bottom sheet của app thật */
+  .sheet-backdrop {
+    display: block;
+  }
+
+  .sheet {
+    position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     top: auto;
     width: auto;
-    max-height: 50vh;
+    max-height: 74vh;
+    border-width: 3px 0 0;
     border-radius: 22px 22px 0 0;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
-    animation: sheet-up 0.22s ease-out;
+    padding: 0 14px calc(10px + env(safe-area-inset-bottom));
+    animation: sheet-up 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* tay nắm chỉ có nghĩa ở chế độ bottom sheet */
+  .sheet-grab {
+    display: block;
   }
 
   @keyframes sheet-up {
@@ -1576,12 +1708,6 @@ input[type='range'] {
     left: 50%;
   }
 
-  /* vùng nắm góc giấy to hơn cho ngón tay */
-  .corner-hot {
-    width: 34%;
-    height: 26%;
-  }
-
   /* iOS chỉ ngừng tự phóng to khi cỡ chữ >= 16px */
   .page-text,
   .title-input,
@@ -1615,9 +1741,8 @@ input[type='range'] {
     grid-template-columns: repeat(4, 1fr);
   }
 
-  .sticker-tray,
-  .index-panel {
-    max-height: 46vh;
+  .sheet {
+    max-height: 68vh;
   }
 }
 
@@ -1869,39 +1994,10 @@ input[type='range'] {
   z-index: 45;
 }
 
-/* ================= sheet menu ⋯ ================= */
-.sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(125, 83, 51, 0.28);
-  z-index: 40;
-  animation: fade-in 0.18s ease-out;
-}
-
+/* ================= nội dung menu ⋯ ================= */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-
-.menu-sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 41;
-  background: var(--paper);
-  border-radius: 24px 24px 0 0;
-  padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
-  box-shadow: 0 -10px 30px -14px var(--shadow);
-  animation: sheet-up 0.22s ease-out;
-}
-
-.sheet-grip {
-  width: 44px;
-  height: 5px;
-  border-radius: 3px;
-  background: var(--tan);
-  margin: 2px auto 8px;
 }
 
 .menu-row {
@@ -1983,6 +2079,50 @@ input[type='range'] {
 /* chế độ một trang: tờ đã lật nằm im ngoài khung thì ẩn đi cho gọn */
 .leaf.single.parked {
   visibility: hidden;
+}
+
+/* ================= đang gõ chữ trên điện thoại =================
+   Bàn phím đã chiếm nửa màn hình rồi, nên mọi thứ không phải trang giấy đều
+   nhường chỗ. Cuốn sổ KHÔNG bị thu nhỏ (xem --kb-lift), chỉ trượt lên. */
+.app.kb-open .topbar {
+  display: none;
+}
+
+.mobile-bar.typing {
+  display: flex;
+  justify-content: center;
+  padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+}
+
+.done-btn {
+  min-height: 44px;
+  padding: 0 30px;
+  border-radius: 999px;
+  border: 2px solid var(--orange-deep);
+  background: var(--orange);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: 0 3px 0 var(--orange-deep);
+}
+
+/* mèo tránh ra khi đang gõ hoặc khi có panel bung lên */
+.app.kb-open .buddy,
+.app.sheet-open .buddy {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+/* Khung bao con mèo (gồm cả bong bóng thoại) không được chặn thao tác lên
+   trang giấy phía dưới — chỉ mình con mèo và mấy nút của nó nhận chạm. */
+.buddy {
+  pointer-events: none;
+}
+
+.buddy-body,
+.buddy-tools button {
+  pointer-events: auto;
 }
 
 /* thanh đăng nhập trên màn chọn mèo */
